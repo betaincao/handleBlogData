@@ -3,6 +3,8 @@ FROM kevinyan001/aliyun-mvn:0.0.1 AS MAVEN_BUILD
 COPY ./ /build/
 
 WORKDIR /build/
+COPY ./entrypoint.sh .
+RUN chmod +x entrypoint.sh
 # mount anonymous host directory as .m2 storage for contianer
 VOLUME /root/.m2
 RUN mvn clean package -Dmaven.test.skip=true --quiet
