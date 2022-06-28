@@ -1,6 +1,5 @@
 FROM kevinyan001/aliyun-mvn:0.0.1 AS MAVEN_BUILD
 
-MKDIR /application/
 COPY ./ /build/
 COPY ./entrypoint.sh /application/entrypoint.sh
 RUN chmod +x /application/entrypoint.sh
