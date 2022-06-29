@@ -5,6 +5,9 @@ on:   # 配置触发workflow的事件
     tags:       # tag更新时触发此workflow
       - '*'
  
+env:
+  IMAGE_NAME: handle-data-alarm
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,9 +19,18 @@ jobs:
         java-version: 1.8
     - name: Build with Maven
       run: mvn -B package --file pom.xml
-    - name: BuildDockerImage
-      run: docker build . --file handleData-emailAlarm/dockerfile --tag betaincao/handle-data-alarm:${{ github.ref }}
-    - name: Log into registry
+    - name: Build Docker Image
+      run: docker build . --file handleData-aemailAlarm/dockerfile --tag $IMAGE_NAME
+    - name: Login Dockerhub
       run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u betaincao --password-stdin
-    - name: Push image
-      run: docker push betaincao/handle-data-alarm:${{ github.ref }}
+    - name: Push Docker Image
+      run: |
+        IMAGE_ID=betaincao/$IMAGE_NAME
+        IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
+        VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+        [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+        [ "$VERSION" == "master" ] && VERSION=latest
+        echo IMAGE_ID=$IMAGE_ID
+        echo VERSION=$VERSION
+        docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
+        docker push $IMAGE_ID:$VERSION
