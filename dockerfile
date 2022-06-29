@@ -14,4 +14,4 @@ COPY --from=MAVEN_BUILD /build/handleData-api/target/*.jar /app/handleData-api.j
 COPY --from=MAVEN_BUILD /build/handleData-core/target/*.jar /app/handleData-core.jar
 COPY --from=MAVEN_BUILD /build/handleData-emailAlarm/target/*.jar /app/handleData-emailAlarm.jar
 
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["java -jar /app/handleData-api.jar --server.port=8080 & java -jar /app/handleData-core.jar --server.port=8081 & java -jar /app/handleData-emailAlarm.jar --server.port=8082 &"]
