@@ -1,4 +1,4 @@
-name: Java CI with Maven
+name: build & push handleData-api docker images
  
 on:   # 配置触发workflow的事件
   push:
