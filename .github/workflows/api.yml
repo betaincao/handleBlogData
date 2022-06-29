@@ -2,8 +2,6 @@ name: build & push handleData-api docker images
  
 on:   # 配置触发workflow的事件
   push:
-    branches:   # master分支有push时触发此workflow
-      - 'master'
     tags:       # tag更新时触发此workflow
       - '*'
  
@@ -19,10 +17,8 @@ jobs:
     - name: Build with Maven
       run: mvn -B package --file pom.xml
     - name: BuildDockerImage
-      run: docker build . --file handleData-api/dockerfile --tag betaincao/handle-data-api:$(date +%F)
-    - name: Publish to Docker Repository
-      uses: elgohr/Publish-Docker-Github-Action@master
-      with:
-        name: betaincao/handle-data-api:$(date +%F)
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      run: docker build . --file handleData-api/dockerfile --tag betaincao/handle-data-api:${{ github.ref }}
+    - name: Log into registry
+      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u betaincao --password-stdin
+    - name: Push image
+      run: docker push betaincao/handle-data-api:${{ github.ref }}
