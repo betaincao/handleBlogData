@@ -14,4 +14,4 @@ COPY --from=MAVEN_BUILD /build/handleData-api/target/*.jar /app/handleData-api.j
 COPY --from=MAVEN_BUILD /build/handleData-core/target/*.jar /app/handleData-core.jar
 COPY --from=MAVEN_BUILD /build/handleData-emailAlarm/target/*.jar /app/handleData-emailAlarm.jar
 
-ENTRYPOINT ["cd / & sh /application/entrypoint.sh"]
+ENTRYPOINT ["./entrypoint.sh"]
