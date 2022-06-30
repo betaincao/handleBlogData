@@ -20,7 +20,7 @@ jobs:
     - name: Build with Maven
       run: mvn -B package --file pom.xml
     - name: Build Docker Image
-      run: docker build . --file handleData-aemailAlarm/dockerfile --tag $IMAGE_NAME
+      run: docker build . --file handleData-emailAlarm/dockerfile --tag $IMAGE_NAME
     - name: Login Dockerhub
       run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u betaincao --password-stdin
     - name: Push Docker Image
