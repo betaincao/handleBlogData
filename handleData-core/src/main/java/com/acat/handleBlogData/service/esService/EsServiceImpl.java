@@ -1,23 +1,34 @@
 package com.acat.handleBlogData.service.esService;
 
+import com.acat.handleBlogData.constants.RestResult;
+import com.acat.handleBlogData.controller.req.SearchReq;
+import com.acat.handleBlogData.controller.resp.SearchCityResp;
+import com.acat.handleBlogData.controller.resp.SearchCountryResp;
+import com.acat.handleBlogData.controller.resp.SearchResp;
+import com.acat.handleBlogData.controller.resp.UserDetailResp;
 import com.acat.handleBlogData.domain.esDb.*;
 import com.acat.handleBlogData.enums.MediaSourceEnum;
+import com.acat.handleBlogData.service.emailService.SendEmailServiceImpl;
+import com.acat.handleBlogData.service.emailService.vo.SendEmailReq;
 import com.acat.handleBlogData.service.esService.repository.*;
 import com.acat.handleBlogData.util.ReaderFileUtil;
-import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
+import org.elasticsearch.client.RestHighLevelClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
+import java.util.Date;
 import java.util.List;
 
 @Service
 @Slf4j
 public class EsServiceImpl {
 
+    @Resource
+    private RestHighLevelClient restHighLevelClient;
     @Resource
     private TwitterRepository twitterRepository;
     @Resource
@@ -30,6 +41,8 @@ public class EsServiceImpl {
     private FqImplRepository fqImplRepository;
     @Resource
     private FqHistoryRepository fqHistoryRepository;
+    @Resource
+    private SendEmailServiceImpl sendEmailService;
     //标准桶大小
     private static final Integer LIMIT_SIZE = 100;
 
@@ -49,37 +62,60 @@ public class EsServiceImpl {
                 case TWITTER:
                     List<TwitterUserData> twitterUserDataList = (List<TwitterUserData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.TWITTER);
                     if (!CollectionUtils.isEmpty(twitterUserDataList)) {
-                        Lists.partition(twitterUserDataList, LIMIT_SIZE).forEach(twitter -> twitterRepository.saveAll(twitter));
+                        List<TwitterUserData> dataList = (List<TwitterUserData>) twitterRepository.saveAll(twitterUserDataList);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.TWITTER));
+                            return false;
+                        }
                     }
                     break;
                 case INSTAGRAM:
                     List<InstagramUserData> instagramUserDataList = (List<InstagramUserData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.INSTAGRAM);
                     if (!CollectionUtils.isEmpty(instagramUserDataList)) {
-                        Lists.partition(instagramUserDataList, LIMIT_SIZE).forEach(instagram -> instagramRepository.saveAll(instagram));
+                        List<InstagramUserData> dataList = (List<InstagramUserData>) instagramRepository.saveAll(instagramUserDataList);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.INSTAGRAM));
+                            return false;
+                        }
                     }
                     break;
                 case FB_IMPL:
                     List<FbUserImplData> fbUserImplDataList = (List<FbUserImplData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.FB_IMPL);
                     if (!CollectionUtils.isEmpty(fbUserImplDataList)) {
-                        Lists.partition(fbUserImplDataList, LIMIT_SIZE).forEach(fbImpl -> fbImplRepository.saveAll(fbImpl));
-                    }
+                        List<FbUserImplData> dataList = (List<FbUserImplData>) fbImplRepository.saveAll(fbUserImplDataList);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.FB_IMPL));
+                            return false;
+                        }                    }
                     break;
                 case FB_HISTORY:
                     List<FbUserHistoryData> fbUserHistoryDataList = (List<FbUserHistoryData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.FB_HISTORY);
                     if (!CollectionUtils.isEmpty(fbUserHistoryDataList)) {
-                        Lists.partition(fbUserHistoryDataList, LIMIT_SIZE).forEach(fbHistory -> fbHistoryRepository.saveAll(fbHistory));
+                        List<FbUserHistoryData> dataList = (List<FbUserHistoryData>) fbHistoryRepository.saveAll(fbUserHistoryDataList);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.FB_HISTORY));
+                            return false;
+                        }
                     }
                     break;
                 case FQ_IMPL:
                     List<FqUserImplData> fqUserImplDataList = (List<FqUserImplData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.FQ_IMPL);
                     if (!CollectionUtils.isEmpty(fqUserImplDataList)) {
-                        Lists.partition(fqUserImplDataList, LIMIT_SIZE).forEach(fqImpl -> fqImplRepository.saveAll(fqImpl));
+                        List<FqUserImplData> dataList = (List<FqUserImplData>) fqImplRepository.saveAll(fqUserImplDataList);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.FQ_IMPL));
+                            return false;
+                        }
                     }
                     break;
                 case FQ_HISTORY:
                     List<FqUserHistoryData> fqUserHistoryData = (List<FqUserHistoryData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.FQ_HISTORY);
                     if (!CollectionUtils.isEmpty(fqUserHistoryData)) {
-                        Lists.partition(fqUserHistoryData, LIMIT_SIZE).forEach(fqHistory -> fqHistoryRepository.saveAll(fqHistory));
+                        List<FqUserHistoryData> dataList = (List<FqUserHistoryData>) fqHistoryRepository.saveAll(fqUserHistoryData);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.FQ_HISTORY));
+                            return false;
+                        }
                     }
                     break;
                 default:
@@ -87,8 +123,55 @@ public class EsServiceImpl {
             }
             return true;
         }catch (Exception e) {
-            log.error("TwitterService.insertEsData has error:{}",e.getMessage());
+            log.error("EsServiceImpl.insertEsData has error:{}",e.getMessage());
         }
         return false;
+    }
+
+    /**
+     * 搜索查询
+     * @param searchReq
+     * @return
+     */
+    public RestResult<SearchResp> searchData(SearchReq searchReq) {
+//        restHighLevelClient.
+        return null;
+    }
+
+    /**
+     * 详情
+     */
+    public RestResult<UserDetailResp> retrieveUserDetail(String UserId) {
+        return null;
+    }
+
+    /**
+     * 获取国家列表
+     * @return
+     */
+    public RestResult<List<SearchCountryResp>> getCountryList() {
+        return null;
+    }
+
+    /**
+     * 获取城市列表
+     * @return
+     */
+    public RestResult<List<SearchCityResp>> getCityList() {
+        return null;
+    }
+
+    /**
+     * 组装
+     * @param mediaSourceEnum
+     * @return
+     */
+    private SendEmailReq covBean(MediaSourceEnum mediaSourceEnum) {
+        SendEmailReq emailReq = SendEmailReq
+                .builder()
+                .subject("落es库失败")
+                .content("您好,系统于北京时间" + new Date() + "入" + mediaSourceEnum.name() + "类型数据时失败,请联系rd紧急排查,谢谢！！！")
+                .build();
+        return emailReq;
     }
 }
