@@ -1,20 +1,24 @@
 package com.acat.handleBlogData.controller.resp;
 
 import cn.hutool.db.DaoTemplate;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.Date;
 import java.util.List;
 
 @Data
 @Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class UserDetailResp {
 
     /**
      * 媒介
      */
-    private String mediaSource;
+    private MediaTypeResp mediaSource;
 
     /**
      * 用户头像
@@ -39,12 +43,12 @@ public class UserDetailResp {
     /**
      * 出生日期
      */
-    private Date bornTime;
+    private String bornTime;
 
     /**
      * 粉丝数
      */
-    private String followCount;
+    private String followersCount;
 
     /**
      * 关注数
@@ -158,6 +162,8 @@ public class UserDetailResp {
 
     @Data
     @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
     public static class Field{
 
         private String field;

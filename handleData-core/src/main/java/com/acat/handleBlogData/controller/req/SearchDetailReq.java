@@ -1,17 +1,17 @@
-package com.acat.handleBlogData.controller.resp;
+package com.acat.handleBlogData.controller.req;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-
-@Data
 @Builder
+@Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class SearchCountryResp {
+public class SearchDetailReq {
 
-    private List<String> countryList;
+    private Integer mediaCode;
+
+    private String uuid;
 }
