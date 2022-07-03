@@ -1,6 +1,7 @@
 package com.acat.handleBlogData.controller.resp;
 
-import com.acat.handleBlogData.domain.BlogSystemUser;
+//import com.acat.handleBlogData.domain.BlogSystemUser;
+import com.acat.handleBlogData.domain.entity.BlogSystemUserEntity;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,8 +17,9 @@ public class LoginRespVo {
     private String userName;
     private String passWord;
     private String userNickname;
+    private String token;
 
-    public static LoginRespVo covertBean(BlogSystemUser blogSystemUser) {
+    public static LoginRespVo covertBean(BlogSystemUserEntity blogSystemUser) {
         if (blogSystemUser != null) {
             return LoginRespVo
                     .builder()

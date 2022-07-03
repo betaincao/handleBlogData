@@ -161,25 +161,28 @@ public class EsServiceImpl {
 
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
             if (StringUtils.isNotBlank(searchReq.getUserId())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id", searchReq.getUserId()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id.keyword", searchReq.getUserId()));
             }
             if (StringUtils.isNotBlank(searchReq.getUserName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name", searchReq.getUserName()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name.keyword", searchReq.getUserName()));
             }
             if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name", searchReq.getUserQuanName()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name.keyword", searchReq.getUserQuanName()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before.keyword", searchReq.getBeforeName()));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile", searchReq.getPhoneNum()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile.keyword", searchReq.getPhoneNum()));
             }
             if (StringUtils.isNotBlank(searchReq.getEmail())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("email", searchReq.getEmail()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("email.keyword", searchReq.getEmail()));
             }
             if (StringUtils.isNotBlank(searchReq.getCountry())) {
                 boolQueryBuilder.must(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
             }
             if (StringUtils.isNotBlank(searchReq.getCity())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("city", searchReq.getCity()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity()));
             }
             if (!Objects.isNull(searchReq.getStartTime()) && !Objects.isNull(searchReq.getEndTime())) {
                 boolQueryBuilder.must(QueryBuilders.rangeQuery("source_create_time").lte(searchReq.getEndTime()).gte(searchReq.getStartTime()));
@@ -187,7 +190,8 @@ public class EsServiceImpl {
 
             SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
             sourceBuilder.query(boolQueryBuilder);
-            sourceBuilder.from((searchReq.getPageNum() > 0 ? (searchReq.getPageNum() - 1) : 0) * searchReq.getPageSize()).size(searchReq.getPageSize()).sort("registered_time.keyword", SortOrder.DESC);
+            sourceBuilder.from((searchReq.getPageNum() > 0 ? (searchReq.getPageNum() - 1) : 0) * searchReq.getPageSize()).size(searchReq.getPageSize());
+//            sourceBuilder.sort("registered_time.keyword", SortOrder.DESC);
 
             SearchRequest searchRequest = new SearchRequest();
             searchRequest.indices(getEsIndex(searchReq).stream().toArray(String[]::new));
@@ -202,8 +206,7 @@ public class EsServiceImpl {
             SearchHit[] searchHits = response.getHits().getHits();
             for (SearchHit hit : Arrays.stream(searchHits).collect(Collectors.toList())) {
                 SearchResp.UserData userData = new SearchResp.UserData();
-                userData.setUserId(hit.getSourceAsMap().get("user_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_id")));
-                userData.setUuid(hit.getSourceAsMap().get("uuid") == null ? "" : String.valueOf(hit.getSourceAsMap().get("uuid")));
+                userData.setUserId(String.valueOf(hit.getSourceAsMap().get("user_id")));
                 userData.setUserName(hit.getSourceAsMap().get("screen_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("screen_name")));
                 userData.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
                 userData.setPhoneNum(String.valueOf(hit.getSourceAsMap().get("mobile")));
@@ -293,7 +296,8 @@ public class EsServiceImpl {
             userDetailResp.setHomeAddress(hit.getSourceAsMap().get("home_town") == null ? "" : String.valueOf(hit.getSourceAsMap().get("home_town")));
             userDetailResp.setLanguage(hit.getSourceAsMap().get("language_type") == null ? "" : String.valueOf(hit.getSourceAsMap().get("language_type")));
             userDetailResp.setSourceCreateTime(hit.getSourceAsMap().get("source_create_time") == null ? "" : String.valueOf(hit.getSourceAsMap().get("source_create_time")));
-            userDetailResp.setSourceCreateTime(hit.getSourceAsMap().get("user_summary") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_summary")));
+            userDetailResp.setUserSummary(hit.getSourceAsMap().get("user_summary") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_summary")));
+            userDetailResp.setFieldMap(hit.getSourceAsMap());
             return new RestResult<>(RestEnum.SUCCESS, userDetailResp);
         }catch (Exception e) {
             log.error("EsServiceImpl.retrieveUserDetail has error:{}",e.getMessage());
@@ -399,10 +403,7 @@ public class EsServiceImpl {
         MediaSourceEnum sourceEnum = MediaSourceEnum.getMediaSourceEnum(searchReq.getMediaType());
         if (MediaSourceEnum.ALL == sourceEnum
             || null == sourceEnum) {
-            return Lists.newArrayList(MediaSourceEnum.TWITTER.getEs_index(), MediaSourceEnum.FB_IMPL.getEs_index(),MediaSourceEnum.FB_HISTORY.getEs_index(),
-                    MediaSourceEnum.FQ_IMPL.getEs_index(), MediaSourceEnum.FQ_HISTORY.getEs_index(), MediaSourceEnum.INSTAGRAM.getEs_index(),
-                    MediaSourceEnum.LINKEDIN_IMPL.getEs_index(), MediaSourceEnum.LINKEDIN_HISTORY.getEs_index(),
-                    MediaSourceEnum.LINKEDIN_BUSINESS.getEs_index(), MediaSourceEnum.LINKEDIN_SCHOOL.getEs_index());
+            return Arrays.stream(indexArray).collect(Collectors.toList());
         }else {
             return Lists.newArrayList(sourceEnum.getEs_index());
         }

@@ -33,7 +33,7 @@ public class SearchResp {
         private String userId;
 
         /**
-         * uuid
+         * 用户id
          */
         private String uuid;
 
