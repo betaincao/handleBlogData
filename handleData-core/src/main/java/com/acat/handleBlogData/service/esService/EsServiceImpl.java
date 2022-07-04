@@ -9,6 +9,7 @@ import com.acat.handleBlogData.enums.*;
 import com.acat.handleBlogData.service.emailService.SendEmailServiceImpl;
 import com.acat.handleBlogData.service.emailService.vo.SendEmailReq;
 import com.acat.handleBlogData.service.esService.repository.*;
+import com.acat.handleBlogData.service.redisService.RedisLockServiceImpl;
 import com.acat.handleBlogData.util.ReaderFileUtil;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.collapse.CollapseBuilder;
 import org.elasticsearch.search.sort.SortOrder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -52,9 +54,15 @@ public class EsServiceImpl {
     @Resource
     private SendEmailServiceImpl sendEmailService;
     @Resource
+    private RedisLockServiceImpl redisLock;
+    @Resource
     private RestHighLevelClient restHighLevelClient;
+    @Value("${spring.profiles.active}")
+    private String env;
     //标准桶大小
     private static final Integer LIMIT_SIZE = 100;
+    private static final String PRO_PIC_URL = "https://20.10.0.11:9002/gateway/api-file/file/download?fileName=";
+    private static final String PROD_PIC_URL = "";
 
     private static String[] indexArray = new String[]{
             MediaSourceEnum.TWITTER.getEs_index(),
@@ -70,13 +78,21 @@ public class EsServiceImpl {
      * @param file
      * @param mediaSourceEnum
      * @return
-     */
-    @Transactional
+//     */
+//    @Transactional
     public boolean insertEsData(MultipartFile file, MediaSourceEnum mediaSourceEnum) {
-        if (file == null) {
-            return false;
-        }
+        String  lockKey = String.valueOf(System.currentTimeMillis());
+        long time = System.currentTimeMillis() + 1000*10;
         try {
+            boolean isLock = redisLock.getLock(lockKey, time);
+            if (!isLock) {
+                throw new RuntimeException("当前锁拥挤获取锁失败,请重试！！！");
+            }
+
+            if (file == null) {
+                return false;
+            }
+
             switch (mediaSourceEnum) {
                 case TWITTER:
                     List<TwitterUserData> twitterUserDataList = (List<TwitterUserData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.TWITTER);
@@ -105,7 +121,8 @@ public class EsServiceImpl {
                         if (CollectionUtils.isEmpty(dataList)) {
                             sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.FB_IMPL));
                             return false;
-                        }                    }
+                        }
+                    }
                     break;
                 case FB_HISTORY:
                     List<FbUserHistoryData> fbUserHistoryDataList = (List<FbUserHistoryData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.FB_HISTORY);
@@ -143,6 +160,8 @@ public class EsServiceImpl {
             return true;
         }catch (Exception e) {
             log.error("EsServiceImpl.insertEsData has error:{}",e.getMessage());
+        }finally {
+            redisLock.unLock(lockKey);
         }
         return false;
     }
@@ -155,38 +174,16 @@ public class EsServiceImpl {
      */
     public RestResult<SearchResp> searchData(SearchReq searchReq) {
         try {
-            if (!judgeSearchParamAllEmpty(searchReq)) {
-                return new RestResult<>(RestEnum.PLEASE_ADD_PARAM);
+//            if (!judgeSearchParamAllEmpty(searchReq)) {
+//                return new RestResult<>(RestEnum.PLEASE_ADD_PARAM);
+//            }
+
+            if(searchReq.isParticiple()) {
+                return new RestResult<>(RestEnum.PLEASE_ADD_PARAM.getCode(), "现不支持模糊分词查询,请更换精准匹配!!!");
             }
 
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
-            if (StringUtils.isNotBlank(searchReq.getUserId())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id.keyword", searchReq.getUserId()));
-            }
-            if (StringUtils.isNotBlank(searchReq.getUserName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name.keyword", searchReq.getUserName()));
-            }
-            if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name.keyword", searchReq.getUserQuanName()));
-            }
-            if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before.keyword", searchReq.getBeforeName()));
-            }
-            if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile.keyword", searchReq.getPhoneNum()));
-            }
-            if (StringUtils.isNotBlank(searchReq.getEmail())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("email.keyword", searchReq.getEmail()));
-            }
-            if (StringUtils.isNotBlank(searchReq.getCountry())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
-            }
-            if (StringUtils.isNotBlank(searchReq.getCity())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity()));
-            }
-            if (!Objects.isNull(searchReq.getStartTime()) && !Objects.isNull(searchReq.getEndTime())) {
-                boolQueryBuilder.must(QueryBuilders.rangeQuery("source_create_time").lte(searchReq.getEndTime()).gte(searchReq.getStartTime()));
-            }
+            assembleParam(searchReq, boolQueryBuilder);
 
             SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
             sourceBuilder.query(boolQueryBuilder);
@@ -194,49 +191,18 @@ public class EsServiceImpl {
 //            sourceBuilder.sort("registered_time.keyword", SortOrder.DESC);
 
             SearchRequest searchRequest = new SearchRequest();
-            searchRequest.indices(getEsIndex(searchReq).stream().toArray(String[]::new));
+            if (!judgeSearchParamAllEmpty(searchReq)) {
+                searchRequest.indices(indexArray);
+            }else {
+                searchRequest.indices(getEsIndex(searchReq).stream().toArray(String[]::new));
+            }
             searchRequest.types("_doc");
             searchRequest.source(sourceBuilder);
             SearchResponse response = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
             if (response == null) {
                 return new RestResult<>(RestEnum.PLEASE_TRY);
             }
-
-            List<SearchResp.UserData> userDataList = Lists.newArrayList();
-            SearchHit[] searchHits = response.getHits().getHits();
-            for (SearchHit hit : Arrays.stream(searchHits).collect(Collectors.toList())) {
-                SearchResp.UserData userData = new SearchResp.UserData();
-                userData.setUserId(hit.getSourceAsMap().get("user_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_id")));
-                userData.setUuid(hit.getSourceAsMap().get("uuid") == null ? "" : String.valueOf(hit.getSourceAsMap().get("uuid")));
-                userData.setUserName(hit.getSourceAsMap().get("screen_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("screen_name")));
-                userData.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
-                userData.setPhoneNum(hit.getSourceAsMap().get("mobile") == null ? "" : String.valueOf(hit.getSourceAsMap().get("mobile")));
-                userData.setEmail(hit.getSourceAsMap().get("email") == null ? "" : String.valueOf(hit.getSourceAsMap().get("email")));
-                userData.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
-                userData.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
-                userData.setUserHomePage(hit.getSourceAsMap().get("user_web_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_web_url")));
-                userData.setGender(hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() : GenderEnum.getGenderEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc());
-                userData.setMarriage(hit.getSourceAsMap().get("marriage") == null ? "未知" : String.valueOf(hit.getSourceAsMap().get("marriage")));
-                userData.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "" : String.valueOf(hit.getSourceAsMap().get("followers_count")));
-                userData.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "" : String.valueOf(hit.getSourceAsMap().get("friend_count")));
-                userData.setMaidernName(hit.getSourceAsMap().get("name_userd_before") == null ? "" : String.valueOf(hit.getSourceAsMap().get("name_userd_before")));
-                userData.setUserReligion(hit.getSourceAsMap().get("user_religio") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_religio")));
-                userData.setWorks(hit.getSourceAsMap().get("works") == null ? "" : String.valueOf(hit.getSourceAsMap().get("works")));
-                userData.setPositionMessage(hit.getSourceAsMap().get("location") == null ? "" : String.valueOf(hit.getSourceAsMap().get("location")));
-                userData.setHomeAddress(hit.getSourceAsMap().get("home_town") == null ? "" : String.valueOf(hit.getSourceAsMap().get("home_town")));
-
-                MediaSourceEnum mediaSourceEnum = MediaSourceEnum.getMediaSourceEnumByIndex(hit.getIndex());
-                userData.setMediaTypeResp(MediaTypeResp.builder().code(mediaSourceEnum.getCode()).desc(mediaSourceEnum.getDesc()).build());
-                userDataList.add(userData);
-            }
-
-            TotalHits totalHits = response.getHits().getTotalHits();
-            SearchResp searchResp = SearchResp
-                    .builder()
-                    .totalSize(totalHits.value)
-                    .dataList(userDataList)
-                    .build();
-            return new RestResult<>(RestEnum.SUCCESS, searchResp);
+            return new RestResult<>(RestEnum.SUCCESS, assembleParam(response));
         }catch (Exception e) {
             log.error("EsServiceImpl.searchData has error:{}",e.getMessage());
             return new RestResult<>(RestEnum.FAILED);
@@ -271,15 +237,22 @@ public class EsServiceImpl {
             UserDetailResp userDetailResp = new UserDetailResp();
             MediaSourceEnum mediaSourceEnum = MediaSourceEnum.getMediaSourceEnum(searchDetailReq.getMediaCode());
             userDetailResp.setMediaSource(MediaTypeResp.builder().code(mediaSourceEnum.getCode()).desc(mediaSourceEnum.getDesc()).build());
-            userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_avatar")));
+
+            if ("test".equals(env)) {
+                userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_avatar")));
+            }else if ("pre".equals(env)) {
+                userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : PRO_PIC_URL + String.valueOf(hit.getSourceAsMap().get("user_avatar")));
+            }else {
+                userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : PROD_PIC_URL + String.valueOf(hit.getSourceAsMap().get("user_avatar")));
+            }
             userDetailResp.setGender(hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() : GenderEnum.getGenderEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc());
             userDetailResp.setUserName(hit.getSourceAsMap().get("screen_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("screen_name")));
             userDetailResp.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
             userDetailResp.setBornTime(hit.getSourceAsMap().get("born_time") == null ? "" : String.valueOf(hit.getSourceAsMap().get("born_time")));
-            userDetailResp.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "" : String.valueOf(hit.getSourceAsMap().get("followers_count")));
-            userDetailResp.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "" : String.valueOf(hit.getSourceAsMap().get("friend_count")));
-            userDetailResp.setPostCount(hit.getSourceAsMap().get("post_count") == null ? "" : String.valueOf(hit.getSourceAsMap().get("post_count")));
-            userDetailResp.setLikeCount(hit.getSourceAsMap().get("like_count") == null ? "" : String.valueOf(hit.getSourceAsMap().get("like_count")));
+            userDetailResp.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("followers_count")));
+            userDetailResp.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("friend_count")));
+            userDetailResp.setPostCount(hit.getSourceAsMap().get("post_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("post_count")));
+            userDetailResp.setLikeCount(hit.getSourceAsMap().get("like_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("like_count")));
             userDetailResp.setDataId(hit.getSourceAsMap().get("source_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("source_id")));
             userDetailResp.setUserId(hit.getSourceAsMap().get("user_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_id")));
             userDetailResp.setUserHomePage(hit.getSourceAsMap().get("user_web_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_web_url")));
@@ -287,7 +260,19 @@ public class EsServiceImpl {
             userDetailResp.setVerified(hit.getSourceAsMap().get("source_id") == null ? "未知" : VerifiedEnum.getVerifiedEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc());
             userDetailResp.setNameUserdBefore(hit.getSourceAsMap().get("name_userd_before") == null ? "" : String.valueOf(hit.getSourceAsMap().get("name_userd_before")));
             userDetailResp.setMarriage(hit.getSourceAsMap().get("marriage") == null ? "" : String.valueOf(hit.getSourceAsMap().get("marriage")));
-            userDetailResp.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
+
+            if(hit.getSourceAsMap().get("country") == null) {
+                userDetailResp.setCountry("");
+            }else {
+                String country = String.valueOf(hit.getSourceAsMap().get("country"));
+                if (ReaderFileUtil.isChinese(country)) {
+                    userDetailResp.setCountry(country);
+                }else {
+                    userDetailResp.setCountry(ReaderFileUtil.countryMap(country));
+                }
+            }
+
+//            userDetailResp.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
             userDetailResp.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
             userDetailResp.setUserReligion(hit.getSourceAsMap().get("user_religion") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_religion")));
             userDetailResp.setPhoneNum(hit.getSourceAsMap().get("mobile") == null ? "" : String.valueOf(hit.getSourceAsMap().get("mobile")));
@@ -304,6 +289,40 @@ public class EsServiceImpl {
             log.error("EsServiceImpl.retrieveUserDetail has error:{}",e.getMessage());
         }
         return new RestResult<>(RestEnum.FAILED);
+    }
+
+    /**
+     * 批量搜索
+     * @param searchField
+     * @param fieldList
+     * @return
+     */
+    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList) {
+        try {
+            BoolQueryBuilder bigBuilder = QueryBuilders.boolQuery();
+            BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
+            for(String fieldValue: fieldList){
+                channelQueryBuilder.should(QueryBuilders.matchQuery(searchField + ".keyword", fieldValue));
+            }
+            bigBuilder.must(channelQueryBuilder);
+
+            SearchSourceBuilder builder = new SearchSourceBuilder()
+                    .query(bigBuilder);
+            //搜索
+            SearchRequest searchRequest = new SearchRequest();
+            searchRequest.indices(indexArray);
+            searchRequest.types("_doc");
+            searchRequest.source(builder);
+
+            SearchResponse response = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+            if (response == null) {
+                return new RestResult<>(RestEnum.PLEASE_TRY);
+            }
+            return new RestResult<>(RestEnum.SUCCESS, assembleParam(response));
+        }catch (Exception e) {
+            log.error("EsServiceImpl.batchQuery has error:{}",e.getMessage());
+            return new RestResult<>(RestEnum.FAILED);
+        }
     }
 
     /**
@@ -431,5 +450,128 @@ public class EsServiceImpl {
             return false;
         }
         return true;
+    }
+
+    /**
+     * 组装搜索的返回参数
+     * @param response
+     * @return
+     */
+    private SearchResp assembleParam(SearchResponse response) {
+        List<SearchResp.UserData> userDataList = Lists.newArrayList();
+        SearchHit[] searchHits = response.getHits().getHits();
+        if (!CollectionUtils.isEmpty(Arrays.stream(searchHits).collect(Collectors.toList()))) {
+            for (SearchHit hit : Arrays.stream(searchHits).collect(Collectors.toList())) {
+                SearchResp.UserData userData = new SearchResp.UserData();
+                userData.setUserId(hit.getSourceAsMap().get("user_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_id")));
+                userData.setUuid(hit.getSourceAsMap().get("uuid") == null ? "" : String.valueOf(hit.getSourceAsMap().get("uuid")));
+                userData.setUserName(hit.getSourceAsMap().get("screen_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("screen_name")));
+                userData.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
+                userData.setPhoneNum(hit.getSourceAsMap().get("mobile") == null ? "" : String.valueOf(hit.getSourceAsMap().get("mobile")));
+                userData.setEmail(hit.getSourceAsMap().get("email") == null ? "" : String.valueOf(hit.getSourceAsMap().get("email")));
+
+//                if(hit.getSourceAsMap().get("country") == null) {
+//                    userData.setCountry("");
+//                }else {
+//                    String country = String.valueOf(hit.getSourceAsMap().get("country"));
+//                    if (ReaderFileUtil.isChinese(country)) {
+//                        userData.setCountry(country);
+//                    }else {
+//                        userData.setCountry(ReaderFileUtil.countryMap(country));
+//                    }
+//                }
+                userData.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
+                userData.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
+                userData.setUserHomePage(hit.getSourceAsMap().get("user_web_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_web_url")));
+                userData.setGender(hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() : GenderEnum.getGenderEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc());
+                userData.setMarriage(hit.getSourceAsMap().get("marriage") == null ? "未知" : String.valueOf(hit.getSourceAsMap().get("marriage")));
+                userData.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("followers_count")));
+                userData.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("friend_count")));
+                userData.setMaidernName(hit.getSourceAsMap().get("name_userd_before") == null ? "" : String.valueOf(hit.getSourceAsMap().get("name_userd_before")));
+                userData.setUserReligion(hit.getSourceAsMap().get("user_religio") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_religio")));
+                userData.setWorks(hit.getSourceAsMap().get("works") == null ? "" : String.valueOf(hit.getSourceAsMap().get("works")));
+                userData.setPositionMessage(hit.getSourceAsMap().get("location") == null ? "" : String.valueOf(hit.getSourceAsMap().get("location")));
+                userData.setHomeAddress(hit.getSourceAsMap().get("home_town") == null ? "" : String.valueOf(hit.getSourceAsMap().get("home_town")));
+
+                MediaSourceEnum mediaSourceEnum = MediaSourceEnum.getMediaSourceEnumByIndex(hit.getIndex());
+                userData.setMediaTypeResp(MediaTypeResp.builder().code(mediaSourceEnum.getCode()).desc(mediaSourceEnum.getDesc()).build());
+                userDataList.add(userData);
+            }
+        }
+
+        TotalHits totalHits = response.getHits().getTotalHits();
+        return SearchResp
+                .builder()
+                .totalSize(totalHits.value)
+                .dataList(userDataList)
+                .build();
+    }
+
+    /**
+     * 组装查询参数
+     * @param searchReq
+     * @param boolQueryBuilder
+     */
+    private void assembleParam(SearchReq searchReq, BoolQueryBuilder boolQueryBuilder) {
+        //精准查询
+        if (!searchReq.isParticiple()) {
+            if (StringUtils.isNotBlank(searchReq.getUserId())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id.keyword", searchReq.getUserId()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getUserName())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name.keyword", searchReq.getUserName()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name.keyword", searchReq.getUserQuanName()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before.keyword", searchReq.getBeforeName()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile.keyword", searchReq.getPhoneNum()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getEmail())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("email.keyword", searchReq.getEmail()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getCountry())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getCity())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary.keyword", searchReq.getCity()));
+            }
+        }else {
+            //分词查询
+            //todo
+            if (StringUtils.isNotBlank(searchReq.getUserId())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id.keyword", searchReq.getUserId()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getUserName())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name.keyword", searchReq.getUserName()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name.keyword", searchReq.getUserQuanName()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before.keyword", searchReq.getBeforeName()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile.keyword", searchReq.getPhoneNum()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getEmail())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("email.keyword", searchReq.getEmail()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getCountry())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
+            }
+            if (StringUtils.isNotBlank(searchReq.getCity())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity()));
+            }
+        }
+        if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
+            boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary.keyword", searchReq.getCity()));
+        }
     }
 }

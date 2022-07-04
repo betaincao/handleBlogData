@@ -54,6 +54,11 @@ public class SearchReq {
     private String city;
 
     /**
+     * 用户简介
+     */
+    private String userSummary;
+
+    /**
      * 数据来源
      */
     private Integer mediaType;
@@ -67,6 +72,11 @@ public class SearchReq {
      * 结束时间
      */
     private Date endTime;
+
+    /**
+     * 是否是分词查询
+     */
+    private boolean isParticiple;
 
     /**
      * 分页
