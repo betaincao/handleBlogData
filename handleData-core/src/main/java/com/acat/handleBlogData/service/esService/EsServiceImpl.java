@@ -366,11 +366,9 @@ public class EsServiceImpl {
      * @param searchField
      * @param fieldList
      * @param isParticiple
-     * @param pageNum
-     * @param pageSize
      * @return
      */
-    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList, boolean isParticiple, Integer pageNum, Integer pageSize) {
+    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList, boolean isParticiple) {
         try {
             BoolQueryBuilder bigBuilder = QueryBuilders.boolQuery();
             BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
@@ -381,7 +379,7 @@ public class EsServiceImpl {
 
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(bigBuilder)
-                    .from((pageNum > 0 ? (pageNum - 1) : 0) * pageSize).size(pageSize)
+//                    .from((pageNum > 0 ? (pageNum - 1) : 0) * pageSize).size(pageSize)
                     .trackTotalHits(true);
             //搜索
             SearchRequest searchRequest = new SearchRequest();
@@ -618,39 +616,39 @@ public class EsServiceImpl {
             if (StringUtils.isNotBlank(searchReq.getCity())) {
                 boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity()));
             }
-            if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary.keyword", searchReq.getCity()));
-            }
+//            if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary.keyword", searchReq.getCity()));
+//            }
         }else {
             //分词查询
             //todo
             if (StringUtils.isNotBlank(searchReq.getUserId())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id.keyword", searchReq.getUserId()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id", searchReq.getUserId()));
             }
             if (StringUtils.isNotBlank(searchReq.getUserName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name.keyword", searchReq.getUserName()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name", searchReq.getUserName()));
             }
             if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name.keyword", searchReq.getUserQuanName()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name", searchReq.getUserQuanName()));
             }
             if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before.keyword", searchReq.getBeforeName()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before", searchReq.getBeforeName()));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile.keyword", searchReq.getPhoneNum()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile", searchReq.getPhoneNum()));
             }
             if (StringUtils.isNotBlank(searchReq.getEmail())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("email.keyword", searchReq.getEmail()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("email", searchReq.getEmail()));
             }
             if (StringUtils.isNotBlank(searchReq.getCountry())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("country", searchReq.getCountry()));
             }
             if (StringUtils.isNotBlank(searchReq.getCity())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity()));
+                boolQueryBuilder.must(QueryBuilders.matchQuery("city", searchReq.getCity()));
             }
         }
         if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
-            boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary.keyword", searchReq.getCity()));
+            boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary", searchReq.getCity()));
         }
     }
 }
