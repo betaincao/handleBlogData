@@ -12,9 +12,9 @@ public enum MediaSourceEnum {
     FQ_HISTORY(4, "FourceQuare-历史", "fq_history"),
     INSTAGRAM(5, "INSTAGRAM", "instagram"),
     LINKEDIN_IMPL(6, "领英-重点", "link_impl"),
-    LINKEDIN_HISTORY(7, "领英-历史", "link-history"),
-    LINKEDIN_BUSINESS(8, "领英-企业", "link-business"),
-    LINKEDIN_SCHOOL(9, "领英-学校", "link-school"),
+    LINKEDIN_HISTORY(7, "领英-历史", "link_history"),
+    LINKEDIN_BUSINESS(8, "领英-企业", "link_business"),
+    LINKEDIN_SCHOOL(9, "领英-学校", "link_school"),
     ALL(10, "全部", "all")
     ;
 
@@ -54,13 +54,13 @@ public enum MediaSourceEnum {
 //        this.es_index = es_index;
 //    }
 
-    public static Map<Integer, MediaSourceEnum> getEnumMap() {
-        return enumMap;
-    }
-
-    public static void setEnumMap(Map<Integer, MediaSourceEnum> enumMap) {
-        MediaSourceEnum.enumMap = enumMap;
-    }
+//    public static Map<Integer, MediaSourceEnum> getEnumMap() {
+//        return enumMap;
+//    }
+//
+//    public static void setEnumMap(Map<Integer, MediaSourceEnum> enumMap) {
+//        MediaSourceEnum.enumMap = enumMap;
+//    }
 
     private static Map<Integer, MediaSourceEnum> enumMap = new HashMap<>();
     private static Map<String, MediaSourceEnum> indexEnumMap = new HashMap<>();
@@ -78,4 +78,8 @@ public enum MediaSourceEnum {
     public static MediaSourceEnum getMediaSourceEnumByIndex(String index) {
         return indexEnumMap.get(index);
     }
+
+//    public static void main(String[] args) {
+//        System.out.println(MediaSourceEnum.TWITTER.getEs_index());
+//    }
 }

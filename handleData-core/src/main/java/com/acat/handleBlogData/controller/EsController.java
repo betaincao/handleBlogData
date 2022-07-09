@@ -4,6 +4,7 @@ import com.acat.handleBlogData.aop.Auth;
 import com.acat.handleBlogData.constants.RestResult;
 import com.acat.handleBlogData.constants.UrlConstants;
 import com.acat.handleBlogData.controller.req.SearchDetailReq;
+import com.acat.handleBlogData.enums.BatchSearchFieldEnum;
 import com.acat.handleBlogData.enums.MediaSourceEnum;
 import com.acat.handleBlogData.enums.RestEnum;
 import com.acat.handleBlogData.service.esService.EsServiceImpl;
@@ -30,6 +31,8 @@ public class EsController {
 
     @Resource
     private EsServiceImpl esService;
+
+    public static final String TXT_EXTENSION = ".txt";
 
     @Auth(required = false)
     @PostMapping("/upload")
@@ -93,11 +96,14 @@ public class EsController {
     @PostMapping("/batchQuery")
     public RestResult<SearchResp> batchQuery(HttpServletRequest httpServletRequest,
                                              @RequestParam("file") MultipartFile file,
-                                             String searchField) {
+                                             @RequestParam("searchField") String searchField,
+                                             @RequestParam("isParticiple") boolean isParticiple,
+                                             @RequestParam("pageNum") Integer pageNum,
+                                             @RequestParam("pageSize") Integer pageSize) {
         try {
             String originalFilename = file.getOriginalFilename();
             String fileType = originalFilename.substring(originalFilename.lastIndexOf("."));
-            if (!".txt".equals(fileType)) {
+            if (!TXT_EXTENSION.equals(fileType)) {
                 return new RestResult<>(RestEnum.FILE_TYPE_ERROR);
             }
 
@@ -105,11 +111,15 @@ public class EsController {
                 return new RestResult<>(RestEnum.BATCH_QUERY_FIELD_EMPTY);
             }
 
+            if (!isParticiple && BatchSearchFieldEnum.mustDimSearchField().contains(searchField)) {
+                return new RestResult<>(RestEnum.FIELD_NOT_SUPPORT_DIM_SEARCH, searchField + "字段不支持精准查询,请改为模糊(分词)查询");
+            }
+
             List<String> fieldList = ReaderFileUtil.readFile(file);
             if (CollectionUtils.isEmpty(fieldList)) {
                 return new RestResult<>(RestEnum.BATCH_QUERY_FIELD_LIST_EMPTY);
             }
-            return esService.batchQuery(searchField, fieldList);
+            return esService.batchQuery(searchField, fieldList, isParticiple, pageNum, pageSize);
         }catch (Exception e) {
             log.error("EsController.retrieveDataList has error:{}",e.getMessage());
             return new RestResult<>(RestEnum.FAILED.getCode(), e.getMessage(), null);

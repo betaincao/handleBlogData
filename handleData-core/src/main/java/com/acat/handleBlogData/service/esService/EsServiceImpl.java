@@ -52,6 +52,10 @@ public class EsServiceImpl {
     @Resource
     private FqHistoryRepository fqHistoryRepository;
     @Resource
+    private LinkSchoolRepository linkSchoolRepository;
+    @Resource
+    private LinkBusinessRepository linkBusinessRepository;
+    @Resource
     private SendEmailServiceImpl sendEmailService;
     @Resource
     private RedisLockServiceImpl redisLock;
@@ -65,12 +69,14 @@ public class EsServiceImpl {
     private static final String PROD_PIC_URL = "";
 
     private static String[] indexArray = new String[]{
-            MediaSourceEnum.TWITTER.getEs_index(),
-            MediaSourceEnum.INSTAGRAM.getEs_index(),
-            MediaSourceEnum.FB_IMPL.getEs_index(),
-            MediaSourceEnum.FB_HISTORY.getEs_index(),
-            MediaSourceEnum.FQ_IMPL.getEs_index(),
-            MediaSourceEnum.FQ_HISTORY.getEs_index()
+        MediaSourceEnum.TWITTER.getEs_index(),
+        MediaSourceEnum.INSTAGRAM.getEs_index(),
+        MediaSourceEnum.FB_IMPL.getEs_index(),
+        MediaSourceEnum.FB_HISTORY.getEs_index(),
+        MediaSourceEnum.FQ_IMPL.getEs_index(),
+        MediaSourceEnum.FQ_HISTORY.getEs_index(),
+        MediaSourceEnum.LINKEDIN_BUSINESS.getEs_index(),
+        MediaSourceEnum.LINKEDIN_SCHOOL.getEs_index()
     };
 
     /**
@@ -154,6 +160,30 @@ public class EsServiceImpl {
                         }
                     }
                     break;
+                case LINKEDIN_IMPL:
+                    break;
+                case LINKEDIN_HISTORY:
+                    break;
+                case LINKEDIN_BUSINESS:
+                    List<LinkBusinessUserData> linkBusinessUserData = (List<LinkBusinessUserData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.LINKEDIN_BUSINESS);
+                    if (!CollectionUtils.isEmpty(linkBusinessUserData)) {
+                        List<LinkBusinessUserData> dataList = (List<LinkBusinessUserData>) linkBusinessRepository.saveAll(linkBusinessUserData);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.LINKEDIN_BUSINESS));
+                            return false;
+                        }
+                    }
+                    break;
+                case LINKEDIN_SCHOOL:
+                    List<LinkSchoolUserData> linkSchoolUserData = (List<LinkSchoolUserData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.LINKEDIN_SCHOOL);
+                    if (!CollectionUtils.isEmpty(linkSchoolUserData)) {
+                        List<LinkSchoolUserData> dataList = (List<LinkSchoolUserData>) linkSchoolRepository.saveAll(linkSchoolUserData);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.LINKEDIN_SCHOOL));
+                            return false;
+                        }
+                    }
+                    break;
                 default:
                     break;
             }
@@ -188,7 +218,8 @@ public class EsServiceImpl {
             SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
             sourceBuilder.query(boolQueryBuilder);
             sourceBuilder.from((searchReq.getPageNum() > 0 ? (searchReq.getPageNum() - 1) : 0) * searchReq.getPageSize()).size(searchReq.getPageSize());
-//            sourceBuilder.sort("registered_time.keyword", SortOrder.DESC);
+            sourceBuilder.trackTotalHits(true);
+            //            sourceBuilder.sort("registered_time.keyword", SortOrder.DESC);
 
             SearchRequest searchRequest = new SearchRequest();
             if (!judgeSearchParamAllEmpty(searchReq)) {
@@ -245,34 +276,44 @@ public class EsServiceImpl {
             }else {
                 userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : PROD_PIC_URL + String.valueOf(hit.getSourceAsMap().get("user_avatar")));
             }
-            userDetailResp.setGender(hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() : GenderEnum.getGenderEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc());
+
+            userDetailResp.setGender(
+                    hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() :
+                            (ReaderFileUtil.isChinese(String.valueOf(hit.getSourceAsMap().get("gender"))) ? String.valueOf(hit.getSourceAsMap().get("gender")) :
+                                    GenderEnum.getGenderEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc())
+            );
+
             userDetailResp.setUserName(hit.getSourceAsMap().get("screen_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("screen_name")));
             userDetailResp.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
             userDetailResp.setBornTime(hit.getSourceAsMap().get("born_time") == null ? "" : String.valueOf(hit.getSourceAsMap().get("born_time")));
-            userDetailResp.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("followers_count")));
-            userDetailResp.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("friend_count")));
-            userDetailResp.setPostCount(hit.getSourceAsMap().get("post_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("post_count")));
-            userDetailResp.setLikeCount(hit.getSourceAsMap().get("like_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("like_count")));
+            userDetailResp.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("followers_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("followers_count"))));
+            userDetailResp.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("friend_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("friend_count"))));
+            userDetailResp.setPostCount(hit.getSourceAsMap().get("post_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("post_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("post_count"))));
+            userDetailResp.setLikeCount(hit.getSourceAsMap().get("like_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("like_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("like_count"))));
             userDetailResp.setDataId(hit.getSourceAsMap().get("source_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("source_id")));
             userDetailResp.setUserId(hit.getSourceAsMap().get("user_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_id")));
             userDetailResp.setUserHomePage(hit.getSourceAsMap().get("user_web_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_web_url")));
-            userDetailResp.setUserType(hit.getSourceAsMap().get("user_type") == null ? UserTypeEnum.WEI_ZHI.getDesc() : UserTypeEnum.getUserTypeEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("user_type")))).getDesc());
-            userDetailResp.setVerified(hit.getSourceAsMap().get("source_id") == null ? "未知" : VerifiedEnum.getVerifiedEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc());
+
+            userDetailResp.setUserType(
+                    hit.getSourceAsMap().get("user_type") == null ? UserTypeEnum.WEI_ZHI.getDesc() :
+                            (ReaderFileUtil.isChinese(String.valueOf(hit.getSourceAsMap().get("user_type"))) ? String.valueOf(hit.getSourceAsMap().get("user_type")) :
+                                    UserTypeEnum.getUserTypeEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("user_type")))).getDesc())
+            );
+            userDetailResp.setVerified(
+                    hit.getSourceAsMap().get("verified") == null ? VerifiedEnum.WEIZHI.getDesc() :
+                            (ReaderFileUtil.isChinese(String.valueOf(hit.getSourceAsMap().get("verified"))) ? String.valueOf(hit.getSourceAsMap().get("user_type")) :
+                                    VerifiedEnum.getVerifiedEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("verified")))).getDesc())
+            );
+
             userDetailResp.setNameUserdBefore(hit.getSourceAsMap().get("name_userd_before") == null ? "" : String.valueOf(hit.getSourceAsMap().get("name_userd_before")));
             userDetailResp.setMarriage(hit.getSourceAsMap().get("marriage") == null ? "" : String.valueOf(hit.getSourceAsMap().get("marriage")));
 
-            if(hit.getSourceAsMap().get("country") == null) {
-                userDetailResp.setCountry("");
-            }else {
-                String country = String.valueOf(hit.getSourceAsMap().get("country"));
-                if (ReaderFileUtil.isChinese(country)) {
-                    userDetailResp.setCountry(country);
-                }else {
-                    userDetailResp.setCountry(ReaderFileUtil.countryMap(country));
-                }
-            }
+            userDetailResp.setCountry(
+                    hit.getSourceAsMap().get("country") == null ? "" :
+                            (ReaderFileUtil.isChinese(String.valueOf(hit.getSourceAsMap().get("country"))) ? String.valueOf(hit.getSourceAsMap().get("country")) :
+                                    ReaderFileUtil.countryMap(String.valueOf(hit.getSourceAsMap().get("country"))))
+            );
 
-//            userDetailResp.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
             userDetailResp.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
             userDetailResp.setUserReligion(hit.getSourceAsMap().get("user_religion") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_religion")));
             userDetailResp.setPhoneNum(hit.getSourceAsMap().get("mobile") == null ? "" : String.valueOf(hit.getSourceAsMap().get("mobile")));
@@ -292,22 +333,56 @@ public class EsServiceImpl {
     }
 
     /**
+     * 获取不同索引的数量
+     * @param mediaSourceEnum
+     * @return
+     */
+    public Long getMediaIndexSize(MediaSourceEnum mediaSourceEnum) {
+        try {
+            if (MediaSourceEnum.LINKEDIN_HISTORY == mediaSourceEnum
+                    || MediaSourceEnum.LINKEDIN_IMPL == mediaSourceEnum) {
+                return 0L;
+            }
+
+            SearchSourceBuilder builder = new SearchSourceBuilder()
+                    .query(QueryBuilders.matchAllQuery())
+                    .trackTotalHits(true);
+            //搜索
+            SearchRequest searchRequest = new SearchRequest();
+            searchRequest.indices(mediaSourceEnum.getEs_index());
+            searchRequest.types("_doc");
+            searchRequest.source(builder);
+
+            SearchResponse response = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+            return response == null ? 0L : response.getHits().getTotalHits().value;
+        }catch (Exception e) {
+            log.error("EsServiceImpl.getMediaIndexSize has error:{}",e.getMessage());
+        }
+        return 0L;
+    }
+
+    /**
      * 批量搜索
      * @param searchField
      * @param fieldList
+     * @param isParticiple
+     * @param pageNum
+     * @param pageSize
      * @return
      */
-    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList) {
+    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList, boolean isParticiple, Integer pageNum, Integer pageSize) {
         try {
             BoolQueryBuilder bigBuilder = QueryBuilders.boolQuery();
             BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
             for(String fieldValue: fieldList){
-                channelQueryBuilder.should(QueryBuilders.matchQuery(searchField + ".keyword", fieldValue));
+                channelQueryBuilder.should(isParticiple ? QueryBuilders.matchQuery(searchField, fieldValue) : QueryBuilders.matchQuery(searchField + ".keyword", fieldValue));
             }
             bigBuilder.must(channelQueryBuilder);
 
             SearchSourceBuilder builder = new SearchSourceBuilder()
-                    .query(bigBuilder);
+                    .query(bigBuilder)
+                    .from((pageNum > 0 ? (pageNum - 1) : 0) * pageSize).size(pageSize)
+                    .trackTotalHits(true);
             //搜索
             SearchRequest searchRequest = new SearchRequest();
             searchRequest.indices(indexArray);
@@ -338,7 +413,8 @@ public class EsServiceImpl {
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery())
                     .fetchSource(includeFields, null)
-                    .collapse(collapseBuilder);
+                    .collapse(collapseBuilder)
+                    .trackTotalHits(true);
 
             //搜索
             SearchRequest searchRequest = new SearchRequest();
@@ -379,7 +455,8 @@ public class EsServiceImpl {
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery())
                     .fetchSource(includeFields, null)
-                    .collapse(collapseBuilder);
+                    .collapse(collapseBuilder)
+                    .trackTotalHits(true);
 
             //搜索
             SearchRequest searchRequest = new SearchRequest();
@@ -470,23 +547,25 @@ public class EsServiceImpl {
                 userData.setPhoneNum(hit.getSourceAsMap().get("mobile") == null ? "" : String.valueOf(hit.getSourceAsMap().get("mobile")));
                 userData.setEmail(hit.getSourceAsMap().get("email") == null ? "" : String.valueOf(hit.getSourceAsMap().get("email")));
 
-//                if(hit.getSourceAsMap().get("country") == null) {
-//                    userData.setCountry("");
-//                }else {
-//                    String country = String.valueOf(hit.getSourceAsMap().get("country"));
-//                    if (ReaderFileUtil.isChinese(country)) {
-//                        userData.setCountry(country);
-//                    }else {
-//                        userData.setCountry(ReaderFileUtil.countryMap(country));
-//                    }
-//                }
+                userData.setCountry(
+                        hit.getSourceAsMap().get("country") == null ? "" :
+                                (ReaderFileUtil.isChinese(String.valueOf(hit.getSourceAsMap().get("country"))) ? String.valueOf(hit.getSourceAsMap().get("country")) :
+                                        ReaderFileUtil.countryMap(String.valueOf(hit.getSourceAsMap().get("country"))))
+                );
+
                 userData.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
                 userData.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
                 userData.setUserHomePage(hit.getSourceAsMap().get("user_web_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_web_url")));
-                userData.setGender(hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() : GenderEnum.getGenderEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc());
+
+                userData.setGender(
+                        hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() :
+                                (ReaderFileUtil.isChinese(String.valueOf(hit.getSourceAsMap().get("gender"))) ? String.valueOf(hit.getSourceAsMap().get("gender")) :
+                                        GenderEnum.getGenderEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("gender")))).getDesc())
+                );
+
                 userData.setMarriage(hit.getSourceAsMap().get("marriage") == null ? "未知" : String.valueOf(hit.getSourceAsMap().get("marriage")));
-                userData.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("followers_count")));
-                userData.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "0" : String.valueOf(hit.getSourceAsMap().get("friend_count")));
+                userData.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("followers_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("followers_count"))));
+                userData.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("friend_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("friend_count"))));
                 userData.setMaidernName(hit.getSourceAsMap().get("name_userd_before") == null ? "" : String.valueOf(hit.getSourceAsMap().get("name_userd_before")));
                 userData.setUserReligion(hit.getSourceAsMap().get("user_religio") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_religio")));
                 userData.setWorks(hit.getSourceAsMap().get("works") == null ? "" : String.valueOf(hit.getSourceAsMap().get("works")));

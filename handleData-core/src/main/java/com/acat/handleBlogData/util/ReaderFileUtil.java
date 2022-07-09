@@ -29,6 +29,11 @@ public class ReaderFileUtil {
         countryMap.put("Philippines", "菲律宾");
         countryMap.put("Bosnia and Herzegovina", "波斯尼亚和黑塞哥维那");
         countryMap.put("Malaysla", "马来西亚");
+        countryMap.put("AU", "澳大利亚");
+        countryMap.put("DE", "德国");
+        countryMap.put("CN", "中国");
+        countryMap.put("JP", "日本");
+        countryMap.put("Botswana", "博茨瓦纳");
     }
 
     /**
@@ -99,8 +104,12 @@ public class ReaderFileUtil {
                         case LINKEDIN_HISTORY:
                             break;
                         case LINKEDIN_BUSINESS:
+                            LinkBusinessUserData linkBusinessUserData = JacksonUtil.strToBean(textLine, LinkBusinessUserData.class);
+                            objList.add(linkBusinessUserData);
                             break;
                         case LINKEDIN_SCHOOL:
+                            LinkSchoolUserData linkSchoolUserData = JacksonUtil.strToBean(textLine, LinkSchoolUserData.class);
+                            objList.add(linkSchoolUserData);
                             break;
                         default:
                             break;

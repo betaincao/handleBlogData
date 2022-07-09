@@ -5,15 +5,14 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-@Builder
 @Data
+@Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class MediaTypeResp {
+public class TranResp {
 
-    private Integer code;
-
-    private String desc;
-
-    private Long totalSize;
+    /**
+     * 翻译后的内容
+     */
+    private String tranTextValue;
 }
