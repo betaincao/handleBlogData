@@ -52,6 +52,10 @@ public class EsServiceImpl {
     @Resource
     private FqHistoryRepository fqHistoryRepository;
     @Resource
+    private LinkImplRepository linkImplRepository;
+    @Resource
+    private LinkHistoryRepository linkHistoryRepository;
+    @Resource
     private LinkSchoolRepository linkSchoolRepository;
     @Resource
     private LinkBusinessRepository linkBusinessRepository;
@@ -161,8 +165,24 @@ public class EsServiceImpl {
                     }
                     break;
                 case LINKEDIN_IMPL:
+                    List<LinkUserImplData> linkUserImplData = (List<LinkUserImplData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.LINKEDIN_IMPL);
+                    if (!CollectionUtils.isEmpty(linkUserImplData)) {
+                        List<LinkUserImplData> dataList = (List<LinkUserImplData>) linkImplRepository.saveAll(linkUserImplData);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.LINKEDIN_IMPL));
+                            return false;
+                        }
+                    }
                     break;
                 case LINKEDIN_HISTORY:
+                    List<LInkUserHistoryData> lInkUserHistoryData = (List<LInkUserHistoryData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.LINKEDIN_HISTORY);
+                    if (!CollectionUtils.isEmpty(lInkUserHistoryData)) {
+                        List<LInkUserHistoryData> dataList = (List<LInkUserHistoryData>) linkHistoryRepository.saveAll(lInkUserHistoryData);
+                        if (CollectionUtils.isEmpty(dataList)) {
+                            sendEmailService.sendSimpleEmail(covBean(MediaSourceEnum.LINKEDIN_HISTORY));
+                            return false;
+                        }
+                    }
                     break;
                 case LINKEDIN_BUSINESS:
                     List<LinkBusinessUserData> linkBusinessUserData = (List<LinkBusinessUserData>) ReaderFileUtil.readMultipartFileFile(file, MediaSourceEnum.LINKEDIN_BUSINESS);
@@ -219,7 +239,7 @@ public class EsServiceImpl {
             sourceBuilder.query(boolQueryBuilder);
             sourceBuilder.from((searchReq.getPageNum() > 0 ? (searchReq.getPageNum() - 1) : 0) * searchReq.getPageSize()).size(searchReq.getPageSize());
             sourceBuilder.trackTotalHits(true);
-//            sourceBuilder.sort("integrity.keyword", SortOrder.DESC);
+            sourceBuilder.sort("integrity.keyword", SortOrder.DESC);
 
             SearchRequest searchRequest = new SearchRequest();
             if (!judgeSearchParamAllEmpty(searchReq)) {
@@ -270,12 +290,13 @@ public class EsServiceImpl {
             userDetailResp.setMediaSource(MediaTypeResp.builder().code(mediaSourceEnum.getCode()).desc(mediaSourceEnum.getDesc()).build());
 
             if ("test".equals(env)) {
-                userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_avatar")));
+                userDetailResp.setLocalPhotoUrl(hit.getSourceAsMap().get("local_photo_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("local_photo_url")));
             }else if ("pre".equals(env)) {
-                userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : PRO_PIC_URL + String.valueOf(hit.getSourceAsMap().get("user_avatar")));
+                userDetailResp.setLocalPhotoUrl(hit.getSourceAsMap().get("local_photo_url") == null ? "" : PRO_PIC_URL + String.valueOf(hit.getSourceAsMap().get("local_photo_url")));
             }else {
-                userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : PROD_PIC_URL + String.valueOf(hit.getSourceAsMap().get("user_avatar")));
+                userDetailResp.setLocalPhotoUrl(hit.getSourceAsMap().get("local_photo_url") == null ? "" : PROD_PIC_URL + String.valueOf(hit.getSourceAsMap().get("local_photo_url")));
             }
+            userDetailResp.setUserAvatar(hit.getSourceAsMap().get("user_avatar") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_avatar")));
 
             userDetailResp.setGender(
                     hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() :
