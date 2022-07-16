@@ -43,18 +43,16 @@ spring:
       remove-abandoned-on-maintenance: true
       connection-init-sqls: set names utf8mb4
 
-  jpa:
-    hibernate:
-      ddl-auto: none
-      naming:
-        physical-strategy:  org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
-    show-sql: true
+    jpa:
+      hibernate:
+        ddl-auto: none
+        naming:
+          physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+      show-sql: true
 
   elasticsearch:
     rest:
       uris: 172.17.75.6:9201
-      #多媒体系统地址:47.93.185.66:9400
-      #博客大数据系统地址:39.98.138.221:8510
 
 logging:
   level:

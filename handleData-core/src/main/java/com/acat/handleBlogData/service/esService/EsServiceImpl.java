@@ -10,6 +10,7 @@ import com.acat.handleBlogData.service.emailService.SendEmailServiceImpl;
 import com.acat.handleBlogData.service.emailService.vo.SendEmailReq;
 import com.acat.handleBlogData.service.esService.repository.*;
 import com.acat.handleBlogData.service.redisService.RedisLockServiceImpl;
+import com.acat.handleBlogData.util.CountryUtil;
 import com.acat.handleBlogData.util.ReaderFileUtil;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +28,6 @@ import org.elasticsearch.search.collapse.CollapseBuilder;
 import org.elasticsearch.search.sort.SortOrder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -68,9 +68,9 @@ public class EsServiceImpl {
     @Value("${spring.profiles.active}")
     private String env;
     //标准桶大小
-    private static final Integer LIMIT_SIZE = 100;
+//    private static final Integer LIMIT_SIZE = 100;
     private static final String PRO_PIC_URL = "https://20.10.0.11:9002/gateway/api-file/file/download?fileName=";
-    private static final String PROD_PIC_URL = "";
+    private static final String PROD_PIC_URL = "http://big-data-project-department.dc.gtcom.prod/big-data-project-department/fb/info/";
 
     private static String[] indexArray = new String[]{
         MediaSourceEnum.TWITTER.getEs_index(),
@@ -79,6 +79,8 @@ public class EsServiceImpl {
         MediaSourceEnum.FB_HISTORY.getEs_index(),
         MediaSourceEnum.FQ_IMPL.getEs_index(),
         MediaSourceEnum.FQ_HISTORY.getEs_index(),
+        MediaSourceEnum.LINKEDIN_IMPL.getEs_index(),
+        MediaSourceEnum.LINKEDIN_HISTORY.getEs_index(),
         MediaSourceEnum.LINKEDIN_BUSINESS.getEs_index(),
         MediaSourceEnum.LINKEDIN_SCHOOL.getEs_index()
     };
@@ -90,14 +92,14 @@ public class EsServiceImpl {
      * @return
 //     */
 //    @Transactional
-    public boolean insertEsData(MultipartFile file, MediaSourceEnum mediaSourceEnum) {
-        String  lockKey = String.valueOf(System.currentTimeMillis());
-        long time = System.currentTimeMillis() + 1000*10;
+    public synchronized boolean insertEsData(MultipartFile file, MediaSourceEnum mediaSourceEnum) {
+//        String  lockKey = String.valueOf(System.currentTimeMillis());
+//        long time = System.currentTimeMillis() + 1000*10;
         try {
-            boolean isLock = redisLock.getLock(lockKey, time);
-            if (!isLock) {
-                throw new RuntimeException("当前锁拥挤获取锁失败,请重试！！！");
-            }
+//            boolean isLock = redisLock.getLock(lockKey, time);
+//            if (!isLock) {
+//                throw new RuntimeException("当前锁拥挤获取锁失败,请重试！！！");
+//            }
 
             if (file == null) {
                 return false;
@@ -210,9 +212,10 @@ public class EsServiceImpl {
             return true;
         }catch (Exception e) {
             log.error("EsServiceImpl.insertEsData has error:{}",e.getMessage());
-        }finally {
-            redisLock.unLock(lockKey);
         }
+//        finally {
+//            redisLock.unLock(lockKey);
+//        }
         return false;
     }
 
@@ -228,8 +231,11 @@ public class EsServiceImpl {
 //                return new RestResult<>(RestEnum.PLEASE_ADD_PARAM);
 //            }
 
-            if(searchReq.isParticiple()) {
-                return new RestResult<>(RestEnum.PLEASE_ADD_PARAM.getCode(), "现不支持模糊分词查询,请更换精准匹配!!!");
+//            if(searchReq.isParticiple()) {
+//                return new RestResult<>(RestEnum.PLEASE_ADD_PARAM.getCode(), "现不支持模糊分词查询,请更换精准匹配!!!");
+//            }
+            if (searchReq.getIsParticiple() == null) {
+                searchReq.setIsParticiple(1);
             }
 
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
@@ -239,7 +245,7 @@ public class EsServiceImpl {
             sourceBuilder.query(boolQueryBuilder);
             sourceBuilder.from((searchReq.getPageNum() > 0 ? (searchReq.getPageNum() - 1) : 0) * searchReq.getPageSize()).size(searchReq.getPageSize());
             sourceBuilder.trackTotalHits(true);
-            sourceBuilder.sort("integrity.keyword", SortOrder.DESC);
+//            sourceBuilder.sort("integrity.keyword", SortOrder.DESC);
 
             SearchRequest searchRequest = new SearchRequest();
             if (!judgeSearchParamAllEmpty(searchReq)) {
@@ -331,8 +337,8 @@ public class EsServiceImpl {
 
             userDetailResp.setCountry(
                     hit.getSourceAsMap().get("country") == null ? "" :
-                            (!ReaderFileUtil.isNumber(String.valueOf(hit.getSourceAsMap().get("country"))) ? String.valueOf(hit.getSourceAsMap().get("country")) :
-                                    ReaderFileUtil.countryMap(String.valueOf(hit.getSourceAsMap().get("country"))))
+                            (ReaderFileUtil.isNumber(String.valueOf(hit.getSourceAsMap().get("country"))) ? String.valueOf(hit.getSourceAsMap().get("country")) :
+                                    CountryUtil.getCountryName(String.valueOf(hit.getSourceAsMap().get("country"))))
             );
 
             userDetailResp.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
@@ -360,17 +366,22 @@ public class EsServiceImpl {
      */
     public Long getMediaIndexSize(MediaSourceEnum mediaSourceEnum) {
         try {
-            if (MediaSourceEnum.LINKEDIN_HISTORY == mediaSourceEnum
-                    || MediaSourceEnum.LINKEDIN_IMPL == mediaSourceEnum) {
-                return 0L;
-            }
+//            if (MediaSourceEnum.LINKEDIN_HISTORY == mediaSourceEnum
+//                    || MediaSourceEnum.LINKEDIN_IMPL == mediaSourceEnum) {
+//                return 0L;
+//            }
 
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery())
                     .trackTotalHits(true);
             //搜索
             SearchRequest searchRequest = new SearchRequest();
-            searchRequest.indices(mediaSourceEnum.getEs_index());
+
+            if (MediaSourceEnum.ALL == mediaSourceEnum) {
+                searchRequest.indices(indexArray);
+            }else {
+                searchRequest.indices(mediaSourceEnum.getEs_index());
+            }
             searchRequest.types("_doc");
             searchRequest.source(builder);
 
@@ -389,12 +400,12 @@ public class EsServiceImpl {
      * @param isParticiple
      * @return
      */
-    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList, boolean isParticiple) {
+    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList, Integer isParticiple) {
         try {
             BoolQueryBuilder bigBuilder = QueryBuilders.boolQuery();
             BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
             for(String fieldValue: fieldList){
-                channelQueryBuilder.should(isParticiple ? QueryBuilders.matchQuery(searchField, fieldValue) : QueryBuilders.matchQuery(searchField + ".keyword", fieldValue));
+                channelQueryBuilder.should(isParticiple.equals(1) ? QueryBuilders.matchQuery(searchField + ".keyword", fieldValue) : QueryBuilders.wildcardQuery(searchField, "*"+fieldValue+"*"));
             }
             bigBuilder.must(channelQueryBuilder);
 
@@ -426,13 +437,13 @@ public class EsServiceImpl {
     public RestResult<SearchCountryResp> getCountryList() {
 
         try {
-            List<String> countryList = Lists.newArrayList();
             String[] includeFields = new String[]{"country"};
             CollapseBuilder collapseBuilder = new CollapseBuilder("country.keyword");
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery())
                     .fetchSource(includeFields, null)
                     .collapse(collapseBuilder)
+                    .from(0).size(10000)
                     .trackTotalHits(true);
 
             //搜索
@@ -448,12 +459,19 @@ public class EsServiceImpl {
 
             SearchHit[] searchHits = response.getHits().getHits();
 //            Arrays.stream(searchHits).collect(Collectors.toList()).forEach(e -> countryList.add(e.getSourceAsMap().get("country").toString()));
-            for (SearchHit documentFields : Arrays.stream(searchHits).collect(Collectors.toList())) {
-                Map<String, Object> map = documentFields.getSourceAsMap();
-                if (map.get("country") != null) {
-                    countryList.add((String) map.get("country"));
-                }
+            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
+                return new RestResult<>(RestEnum.SUCCESS,
+                        SearchCountryResp.builder().countryList(Lists.newArrayList()).build());
             }
+
+            List<String> countryList = Arrays.stream(searchHits)
+                    .filter(e -> e.getSourceAsMap().get("country") != null)
+                    .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
+                    .distinct()
+                    .collect(Collectors.toList());
+//                    .stream().map(e ->
+//                ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toLowerCase()
+//                ).distinct();
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCountryResp.builder().countryList(countryList).build());
         }catch (Exception e) {
@@ -468,13 +486,14 @@ public class EsServiceImpl {
      */
     public RestResult<SearchCityResp> getCityList() {
         try {
-            List<String> cityList = Lists.newArrayList();
             String[] includeFields = new String[]{"city"};
             CollapseBuilder collapseBuilder = new CollapseBuilder("city.keyword");
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery())
                     .fetchSource(includeFields, null)
                     .collapse(collapseBuilder)
+                    //做限制
+                    .from(0).size(1000)
                     .trackTotalHits(true);
 
             //搜索
@@ -489,15 +508,16 @@ public class EsServiceImpl {
             }
 
             SearchHit[] searchHits = response.getHits().getHits();
-//            Arrays.stream(searchHits).collect(Collectors.toList()).forEach(
-//                    country -> country.getFields().get("city.keyword").forEach(e -> cityList.add(String.valueOf(e)))
-//            );
-            for (SearchHit documentFields : Arrays.stream(searchHits).collect(Collectors.toList())) {
-                Map<String, Object> map = documentFields.getSourceAsMap();
-                if (map.get("city") != null) {
-                    cityList.add((String) map.get("city"));
-                }
+            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
+                return new RestResult<>(RestEnum.SUCCESS,
+                        SearchCityResp.builder().cityList(Lists.newArrayList()).build());
             }
+
+            List<String> cityList = Arrays.stream(searchHits)
+                    .filter(e -> e.getSourceAsMap().get("city") != null)
+                    .map(e -> (String) e.getSourceAsMap().get("city"))
+                    .distinct()
+                    .collect(Collectors.toList());
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCityResp.builder().cityList(cityList).build());
         }catch (Exception e) {
@@ -568,8 +588,8 @@ public class EsServiceImpl {
 
                 userData.setCountry(
                         hit.getSourceAsMap().get("country") == null ? "" :
-                                (!ReaderFileUtil.isNumber(String.valueOf(hit.getSourceAsMap().get("country"))) ? String.valueOf(hit.getSourceAsMap().get("country")) :
-                                        ReaderFileUtil.countryMap(String.valueOf(hit.getSourceAsMap().get("country"))))
+                                (ReaderFileUtil.isNumber(String.valueOf(hit.getSourceAsMap().get("country"))) ? String.valueOf(hit.getSourceAsMap().get("country")) :
+                                        CountryUtil.getCountryName(String.valueOf(hit.getSourceAsMap().get("country"))))
                 );
 
                 userData.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
@@ -612,7 +632,7 @@ public class EsServiceImpl {
      */
     private void assembleParam(SearchReq searchReq, BoolQueryBuilder boolQueryBuilder) {
         //精准查询
-        if (!searchReq.isParticiple()) {
+        if (searchReq.getIsParticiple().equals(1)) {
             if (StringUtils.isNotBlank(searchReq.getUserId())) {
                 boolQueryBuilder.must(QueryBuilders.matchQuery("user_id.keyword", searchReq.getUserId()));
             }
@@ -632,7 +652,18 @@ public class EsServiceImpl {
                 boolQueryBuilder.must(QueryBuilders.matchQuery("email.keyword", searchReq.getEmail()));
             }
             if (StringUtils.isNotBlank(searchReq.getCountry())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
+                //均大写
+                if (ReaderFileUtil.isAcronym(searchReq.getCountry(), true)) {
+                    boolQueryBuilder.should(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
+                    boolQueryBuilder.should(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry().toLowerCase()));
+                }
+                //均为小写
+                else if (ReaderFileUtil.isAcronym(searchReq.getCountry(), false)) {
+                    boolQueryBuilder.should(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
+                    boolQueryBuilder.should(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry().toUpperCase()));
+                }else {
+                    boolQueryBuilder.must(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry()));
+                }
             }
             if (StringUtils.isNotBlank(searchReq.getCity())) {
                 boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity()));
@@ -641,35 +672,94 @@ public class EsServiceImpl {
 //                boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary.keyword", searchReq.getCity()));
 //            }
         }else {
+//            //分词查询
+//            if (StringUtils.isNotBlank(searchReq.getUserId())) {
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id", searchReq.getUserId()));
+//            }
+//            if (StringUtils.isNotBlank(searchReq.getUserName())) {
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name", searchReq.getUserName()));
+//            }
+//            if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name", searchReq.getUserQuanName()));
+//            }
+//            if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before", searchReq.getBeforeName()));
+//            }
+//            if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile", searchReq.getPhoneNum()));
+//            }
+//            if (StringUtils.isNotBlank(searchReq.getEmail())) {
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("email", searchReq.getEmail()));
+//            }
+//            if (StringUtils.isNotBlank(searchReq.getCountry())) {
+//                //均大写
+//                if (ReaderFileUtil.isAcronym(searchReq.getCountry(), true)) {
+//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry()));
+//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry().toLowerCase()));
+//                }
+//                //均小写
+//                else if (ReaderFileUtil.isAcronym(searchReq.getCountry(), false)) {
+//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry()));
+//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry().toUpperCase()));
+//                }else {
+//                    boolQueryBuilder.must(QueryBuilders.matchQuery("country", searchReq.getCountry()));
+//                }
+//            }
+//            if (StringUtils.isNotBlank(searchReq.getCity())) {
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("city", searchReq.getCity()));
+//            }
             //分词查询
-            //todo
             if (StringUtils.isNotBlank(searchReq.getUserId())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id", searchReq.getUserId()));
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id", searchReq.getUserId()));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("user_id", "*"+searchReq.getUserId()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getUserName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name", searchReq.getUserName()));
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name", searchReq.getUserName()));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("screen_name", "*"+searchReq.getUserName()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name", searchReq.getUserQuanName()));
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name", searchReq.getUserQuanName()));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("use_name", "*"+searchReq.getUserQuanName()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before", searchReq.getBeforeName()));
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before", searchReq.getBeforeName()));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("name_userd_before", "*"+searchReq.getBeforeName()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile", searchReq.getPhoneNum()));
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile", searchReq.getPhoneNum()));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("mobile", "*"+searchReq.getPhoneNum()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getEmail())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("email", searchReq.getEmail()));
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("email", searchReq.getEmail()));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("email", "*"+searchReq.getEmail()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getCountry())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("country", searchReq.getCountry()));
+                //均大写
+                if (ReaderFileUtil.isAcronym(searchReq.getCountry(), true)) {
+//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry()));
+//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry().toLowerCase()));
+                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry()+"*"));
+                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry().toLowerCase()+"*"));
+                }
+                //均小写
+                else if (ReaderFileUtil.isAcronym(searchReq.getCountry(), false)) {
+//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry()));
+//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry().toUpperCase()));
+                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry()+"*"));
+                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry().toUpperCase()+"*"));
+                }else {
+//                    boolQueryBuilder.must(QueryBuilders.matchQuery("country", searchReq.getCountry()));
+                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry()+"*"));
+                }
             }
             if (StringUtils.isNotBlank(searchReq.getCity())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("city", searchReq.getCity()));
+//                boolQueryBuilder.must(QueryBuilders.matchQuery("city", searchReq.getCity()));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("city", "*"+searchReq.getCity()+"*"));
             }
         }
         if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
-            boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary", searchReq.getCity()));
+//            boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary", searchReq.getUserSummary()));
+            boolQueryBuilder.must(QueryBuilders.wildcardQuery("user_summary", "*"+searchReq.getUserSummary()+"*"));
         }
     }
 }
