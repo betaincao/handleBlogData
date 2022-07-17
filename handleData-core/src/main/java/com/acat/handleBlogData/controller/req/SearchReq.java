@@ -31,7 +31,7 @@ public class SearchReq {
     /**
      * 曾用名
      */
-    private String beforeName;
+    private String nameUserdBefore;
 
     /**
      * 手机号
@@ -79,6 +79,11 @@ public class SearchReq {
      * 1:精准
      */
     private Integer isParticiple;
+
+    /**
+     * 完整度
+     */
+    private Integer integrity;
 
     /**
      * 分页

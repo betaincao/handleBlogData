@@ -17,6 +17,7 @@ public class CountryUtil {
         countryMap.put("IN", "印度");
         countryMap.put("Spain", "西班牙");
         countryMap.put("Panama", "巴拿马");
+        countryMap.put("India", "印度");
         countryMap.put("Philippines", "菲律宾");
         countryMap.put("Bosnia and Herzegovina", "波斯尼亚和黑塞哥维那");
         countryMap.put("Malaysla", "马来西亚");
@@ -256,9 +257,6 @@ public class CountryUtil {
     }
 
     public static String getCountryName(String countryKey) {
-//        if (StringUtils.isBlank(countryKey)) {
-//            return "";
-//        }
         if (ReaderFileUtil.isChinese(countryKey)) {
             return countryKey;
         }
@@ -272,5 +270,47 @@ public class CountryUtil {
             }
         }
         return "";
+    }
+
+    /**
+     * 处理用户名字符串
+     * @param str
+     * @return
+     */
+    public static String handleStr(String str) {
+        if (StringUtils.isBlank(str)) {
+            return "";
+        }
+
+        String string[] = str.split("\\ ");
+        if (string.length == 0) {
+            return "";
+        }
+
+        if (string.length == 1) {
+            return string[0];
+        }
+
+        StringBuffer stringBuffer = new StringBuffer(string[string.length-1]);
+        for (int i=0;i<string.length-1;i++) {
+            stringBuffer.append(" ").append(string[i]);
+        }
+        return stringBuffer.toString();
+    }
+
+    public static void main(String[] args) {
+
+//        String str = "abcde";
+//        String [] arr = str.split("\\ ");
+//
+//        StringBuffer stringBuffer = new StringBuffer(arr[arr.length-1]);
+//        for (int i=0;i<arr.length-1;i++) {
+//            stringBuffer.append(" ").append(arr[i]);
+//        }
+//        System.out.println(stringBuffer.toString());
+
+
+
+
     }
 }

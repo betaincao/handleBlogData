@@ -10,7 +10,9 @@ import com.acat.handleBlogData.service.emailService.SendEmailServiceImpl;
 import com.acat.handleBlogData.service.emailService.vo.SendEmailReq;
 import com.acat.handleBlogData.service.esService.repository.*;
 import com.acat.handleBlogData.service.redisService.RedisLockServiceImpl;
+import com.acat.handleBlogData.service.redisService.RedisServiceImpl;
 import com.acat.handleBlogData.util.CountryUtil;
+import com.acat.handleBlogData.util.JacksonUtil;
 import com.acat.handleBlogData.util.ReaderFileUtil;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
@@ -65,12 +67,20 @@ public class EsServiceImpl {
     private RedisLockServiceImpl redisLock;
     @Resource
     private RestHighLevelClient restHighLevelClient;
+    @Resource
+    private RedisServiceImpl redisService;
+//    @Resource
+//    private TranslateOuterServiceImpl translateOuterService;
     @Value("${spring.profiles.active}")
     private String env;
     //标准桶大小
 //    private static final Integer LIMIT_SIZE = 100;
     private static final String PRO_PIC_URL = "https://20.10.0.11:9002/gateway/api-file/file/download?fileName=";
     private static final String PROD_PIC_URL = "http://big-data-project-department.dc.gtcom.prod/big-data-project-department/fb/info/";
+
+    //redis->key
+    public static final String COUNTRY_KEY = "country";
+    public static final String CITY_KEY = "city";
 
     private static String[] indexArray = new String[]{
         MediaSourceEnum.TWITTER.getEs_index(),
@@ -227,13 +237,11 @@ public class EsServiceImpl {
      */
     public RestResult<SearchResp> searchData(SearchReq searchReq) {
         try {
-//            if (!judgeSearchParamAllEmpty(searchReq)) {
-//                return new RestResult<>(RestEnum.PLEASE_ADD_PARAM);
-//            }
+            if (StringUtils.isNotBlank(searchReq.getUserSummary())
+                || searchReq.getIsParticiple().equals(1)) {
+                return new RestResult<>(RestEnum.FIELD_NOT_SUPPORT_DIM_SEARCH, "用户简介不支持精准查询!!!");
+            }
 
-//            if(searchReq.isParticiple()) {
-//                return new RestResult<>(RestEnum.PLEASE_ADD_PARAM.getCode(), "现不支持模糊分词查询,请更换精准匹配!!!");
-//            }
             if (searchReq.getIsParticiple() == null) {
                 searchReq.setIsParticiple(1);
             }
@@ -311,7 +319,24 @@ public class EsServiceImpl {
             );
 
             userDetailResp.setUserName(hit.getSourceAsMap().get("screen_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("screen_name")));
-            userDetailResp.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
+
+            if (hit.getSourceAsMap().get("use_name") == null) {
+                userDetailResp.setUserQuanName("");
+            }else {
+                String qName = String.valueOf(hit.getSourceAsMap().get("use_name"));
+//                String languageType = translateOuterService.getLanguageDelectResult(qName);
+                String languageType = String.valueOf(hit.getSourceAsMap().get("language_type"));
+                if ("zh".equals(languageType)) {
+                    userDetailResp.setUserQuanName(qName.trim());
+                }
+//                else if ("en".equals(languageType) || "vi".equals(languageType)) {
+//                    userDetailResp.setUserQuanName(CountryUtil.handleStr(qName));
+//                }
+                else {
+                    userDetailResp.setUserQuanName(qName);
+                }
+            }
+//            userDetailResp.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
             userDetailResp.setBornTime(hit.getSourceAsMap().get("born_time") == null ? "" : String.valueOf(hit.getSourceAsMap().get("born_time")));
             userDetailResp.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("followers_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("followers_count"))));
             userDetailResp.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("friend_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("friend_count"))));
@@ -332,7 +357,13 @@ public class EsServiceImpl {
                                     VerifiedEnum.getVerifiedEnum(Integer.parseInt(String.valueOf(hit.getSourceAsMap().get("verified")))).getDesc())
             );
 
-            userDetailResp.setNameUserdBefore(hit.getSourceAsMap().get("name_userd_before") == null ? "" : String.valueOf(hit.getSourceAsMap().get("name_userd_before")));
+            if (hit.getSourceAsMap().get("name_userd_before") == null) {
+                userDetailResp.setNameUserdBefore("");
+            }else {
+                Map<String, Object> map = JacksonUtil.strToBean(String.valueOf(hit.getSourceAsMap().get("name_userd_before")), Map.class);
+                userDetailResp.setNameUserdBefore(map.get("userFormerName") == null ? "" : (String) map.get("userFormerName"));
+            }
+
             userDetailResp.setMarriage(hit.getSourceAsMap().get("marriage") == null ? "" : String.valueOf(hit.getSourceAsMap().get("marriage")));
 
             userDetailResp.setCountry(
@@ -366,11 +397,6 @@ public class EsServiceImpl {
      */
     public Long getMediaIndexSize(MediaSourceEnum mediaSourceEnum) {
         try {
-//            if (MediaSourceEnum.LINKEDIN_HISTORY == mediaSourceEnum
-//                    || MediaSourceEnum.LINKEDIN_IMPL == mediaSourceEnum) {
-//                return 0L;
-//            }
-
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery())
                     .trackTotalHits(true);
@@ -405,14 +431,26 @@ public class EsServiceImpl {
             BoolQueryBuilder bigBuilder = QueryBuilders.boolQuery();
             BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
             for(String fieldValue: fieldList){
-                channelQueryBuilder.should(isParticiple.equals(1) ? QueryBuilders.matchQuery(searchField + ".keyword", fieldValue) : QueryBuilders.wildcardQuery(searchField, "*"+fieldValue+"*"));
+//                channelQueryBuilder.should(isParticiple.equals(1) ? QueryBuilders.matchQuery(searchField + ".keyword", fieldValue) : QueryBuilders.wildcardQuery(searchField, "*"+fieldValue+"*"));
+                if (isParticiple.equals(1)) {
+                    channelQueryBuilder.should(QueryBuilders.matchQuery(searchField + ".keyword", fieldValue));
+                }else {
+                    channelQueryBuilder.should(QueryBuilders.wildcardQuery(searchField, "*"+fieldValue+"*"));
+                    channelQueryBuilder.should(QueryBuilders.queryStringQuery("*"+fieldValue+"*").field(searchField));
+                }
             }
             bigBuilder.must(channelQueryBuilder);
 
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(bigBuilder)
-                    .from(0).size(10000)
+//                    .from(0).size(10000)
                     .trackTotalHits(true);
+            if ("test".equals(env) || "pre".equals(env)) {
+                builder.from(0).size(10000);
+            }else {
+                builder.from(0).size(900000000);
+            }
+
             //搜索
             SearchRequest searchRequest = new SearchRequest();
             searchRequest.indices(indexArray);
@@ -431,20 +469,145 @@ public class EsServiceImpl {
     }
 
     /**
+     * 城市或国家搜索
+     * @param textValue
+     * @param fieldName
+     * @return
+     */
+    public RestResult<List<String>> queryCountryOrCity(String textValue, String fieldName) {
+
+        try {
+            List<String> list = redisService.range(fieldName, 0L, -1L);
+            if (!CollectionUtils.isEmpty(list)) {
+                return new RestResult<>(RestEnum.SUCCESS, list.stream().filter(e -> e.contains(textValue)).distinct().collect(Collectors.toList()));
+            }
+
+            BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
+            boolQueryBuilder.should(QueryBuilders.wildcardQuery(fieldName, "*" + textValue + "*"));
+            boolQueryBuilder.should(QueryBuilders.queryStringQuery("*" + textValue + "*").field(fieldName));
+
+            SearchSourceBuilder builder = new SearchSourceBuilder();
+            builder.query(boolQueryBuilder);
+            builder.trackTotalHits(true);
+            if ("test".equals(env) || "pre".equals(env)) {
+                builder.from(0).size(10000);
+            }else {
+                builder.from(0).size(900000000);
+            }
+
+            //搜索
+            SearchRequest searchRequest = new SearchRequest();
+            searchRequest.indices(indexArray);
+            searchRequest.types("_doc");
+            searchRequest.source(builder);
+
+            SearchResponse response = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+            if (response == null) {
+                return new RestResult<>(RestEnum.PLEASE_TRY);
+            }
+
+            List<String> resultList = Lists.newArrayList();
+            SearchHit[] searchHits = response.getHits().getHits();
+            if (!CollectionUtils.isEmpty(Arrays.stream(searchHits).collect(Collectors.toList()))) {
+                for (SearchHit hit : Arrays.stream(searchHits).collect(Collectors.toList())) {
+                    if (hit == null) {
+                        continue;
+                    }
+
+                    if ("country".equals(fieldName)) {
+                        resultList.add(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
+                    }else if ("city".equals(fieldName)) {
+                        resultList.add(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
+                    }
+                }
+            }
+            return new RestResult<>(RestEnum.SUCCESS, resultList.stream().distinct().collect(Collectors.toList()));
+        }catch (Exception e) {
+            log.error("EsServiceImpl.queryCountryOrCity has error:{}",e.getMessage());
+        }
+        return new RestResult<>(RestEnum.FAILED);
+    }
+
+    public RestResult<SearchBeforeNameResp> searchBeforeNameInfo(String userId, String userName) {
+
+        try {
+            // 创建请求
+            BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
+            boolQueryBuilder.should(QueryBuilders.termsQuery("screen_id.keyword", userId));
+            boolQueryBuilder.should(QueryBuilders.termsQuery("screen_name.keyword", userName));
+
+            SearchSourceBuilder builder = new SearchSourceBuilder()
+                    .query(boolQueryBuilder)
+                    .trackTotalHits(true);
+            if ("test".equals(env) || "pre".equals(env)) {
+                builder.from(0).size(10000);
+            } else {
+                builder.from(0).size(900000000);
+            }
+
+            //搜索
+            SearchRequest searchRequest = new SearchRequest();
+            searchRequest.indices(indexArray);
+            searchRequest.types("_doc");
+            searchRequest.source(builder);
+
+            SearchResponse response = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+            if (response == null) {
+                return new RestResult<>(RestEnum.PLEASE_TRY);
+            }
+
+            List<SearchBeforeNameResp.BeforeNameInfo> searchBeforeNameRespList = Lists.newArrayList();
+            SearchHit[] searchHits = response.getHits().getHits();
+            if (!CollectionUtils.isEmpty(Arrays.stream(searchHits).collect(Collectors.toList()))) {
+                for (SearchHit hit : Arrays.stream(searchHits).collect(Collectors.toList())) {
+                    if (hit == null) {
+                        continue;
+                    }
+
+                    SearchBeforeNameResp.BeforeNameInfo beforeNameInfo = new SearchBeforeNameResp.BeforeNameInfo();
+                    beforeNameInfo.setUserId(hit.getSourceAsMap().get("user_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_id")));
+                    beforeNameInfo.setUserName(hit.getSourceAsMap().get("screen_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("screen_name")));
+                    beforeNameInfo.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
+                    beforeNameInfo.setUserUrl(hit.getSourceAsMap().get("user_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_url")));
+                    MediaSourceEnum mediaSourceEnum = MediaSourceEnum.getMediaSourceEnumByIndex(hit.getIndex());
+                    beforeNameInfo.setMediaTypeResp(MediaTypeResp.builder().code(mediaSourceEnum.getCode()).desc(mediaSourceEnum.getDesc()).build());
+                    searchBeforeNameRespList.add(beforeNameInfo);
+                }
+            }
+            return new RestResult<>(RestEnum.SUCCESS,
+                    SearchBeforeNameResp.builder().beforeNameInfoList(searchBeforeNameRespList).build());
+        }catch (Exception e) {
+            log.error("EsServiceImpl.searchBeforeNameInfo has error:{}",e.getMessage());
+        }
+        return new RestResult<>(RestEnum.FAILED);
+    }
+
+    /**
      * 获取国家列表
      * @return
      */
     public RestResult<SearchCountryResp> getCountryList() {
 
         try {
+            List<String> countryListFromCache = redisService.range(COUNTRY_KEY, 0L, -1L);
+            if (!CollectionUtils.isEmpty(countryListFromCache)) {
+                return new RestResult<>(RestEnum.SUCCESS,
+                        SearchCountryResp.builder().countryList(countryListFromCache).build());
+            }
+
             String[] includeFields = new String[]{"country"};
             CollapseBuilder collapseBuilder = new CollapseBuilder("country.keyword");
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery())
                     .fetchSource(includeFields, null)
                     .collapse(collapseBuilder)
-                    .from(0).size(10000)
+//                    .from(0).size(10000)
                     .trackTotalHits(true);
+            if ("test".equals(env) || "pre".equals(env)) {
+                builder.from(0).size(10000);
+            }else {
+                builder.from(0).size(900000000);
+            }
 
             //搜索
             SearchRequest searchRequest = new SearchRequest();
@@ -458,7 +621,6 @@ public class EsServiceImpl {
             }
 
             SearchHit[] searchHits = response.getHits().getHits();
-//            Arrays.stream(searchHits).collect(Collectors.toList()).forEach(e -> countryList.add(e.getSourceAsMap().get("country").toString()));
             if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
                 return new RestResult<>(RestEnum.SUCCESS,
                         SearchCountryResp.builder().countryList(Lists.newArrayList()).build());
@@ -469,9 +631,10 @@ public class EsServiceImpl {
                     .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
                     .distinct()
                     .collect(Collectors.toList());
-//                    .stream().map(e ->
-//                ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toLowerCase()
-//                ).distinct();
+
+            if(!CollectionUtils.isEmpty(countryList)) {
+                redisService.leftPushAll(COUNTRY_KEY, countryList);
+            }
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCountryResp.builder().countryList(countryList).build());
         }catch (Exception e) {
@@ -486,6 +649,12 @@ public class EsServiceImpl {
      */
     public RestResult<SearchCityResp> getCityList() {
         try {
+            List<String> cityListFromCache = redisService.range(CITY_KEY, 0L, -1L);
+            if (!CollectionUtils.isEmpty(cityListFromCache)) {
+                return new RestResult<>(RestEnum.SUCCESS,
+                        SearchCityResp.builder().cityList(cityListFromCache).build());
+            }
+
             String[] includeFields = new String[]{"city"};
             CollapseBuilder collapseBuilder = new CollapseBuilder("city.keyword");
             SearchSourceBuilder builder = new SearchSourceBuilder()
@@ -493,8 +662,13 @@ public class EsServiceImpl {
                     .fetchSource(includeFields, null)
                     .collapse(collapseBuilder)
                     //做限制
-                    .from(0).size(1000)
+//                    .from(0).size(1000000)
                     .trackTotalHits(true);
+            if ("test".equals(env) || "pre".equals(env)) {
+                builder.from(0).size(10000);
+            }else {
+                builder.from(0).size(900000000);
+            }
 
             //搜索
             SearchRequest searchRequest = new SearchRequest();
@@ -518,10 +692,64 @@ public class EsServiceImpl {
                     .map(e -> (String) e.getSourceAsMap().get("city"))
                     .distinct()
                     .collect(Collectors.toList());
+            if (!CollectionUtils.isEmpty(cityList)) {
+                redisService.leftPushAll(CITY_KEY, cityList);
+            }
+
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCityResp.builder().cityList(cityList).build());
         }catch (Exception e) {
             log.error("EsServiceImpl.SearchCityResp has error:{}",e.getMessage());
+        }
+        return new RestResult<>(RestEnum.FAILED);
+    }
+
+    /**
+     * 获取完整度列表
+     * @return
+     */
+    public RestResult<SearchIntegrityResp> getIntegrityList() {
+        try {
+            String[] includeFields = new String[]{"integrity"};
+            CollapseBuilder collapseBuilder = new CollapseBuilder("integrity.keyword");
+            SearchSourceBuilder builder = new SearchSourceBuilder()
+                    .query(QueryBuilders.matchAllQuery())
+                    .fetchSource(includeFields, null)
+                    .collapse(collapseBuilder)
+//                    .from(0).size(10000)
+                    .trackTotalHits(true);
+            if ("test".equals(env) || "pre".equals(env)) {
+                builder.from(0).size(10000);
+            }else {
+                builder.from(0).size(900000000);
+            }
+
+            //搜索
+            SearchRequest searchRequest = new SearchRequest();
+            searchRequest.indices(indexArray);
+            searchRequest.types("_doc");
+            searchRequest.source(builder);
+            // 执行请求
+            SearchResponse response = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+            if (response == null) {
+                return new RestResult<>(RestEnum.PLEASE_TRY);
+            }
+
+            SearchHit[] searchHits = response.getHits().getHits();
+            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
+                return new RestResult<>(RestEnum.SUCCESS,
+                        SearchIntegrityResp.builder().integrityList(Lists.newArrayList()).build());
+            }
+
+            List<String> integrityList = Arrays.stream(searchHits)
+                    .filter(e -> e.getSourceAsMap().get("integrity") != null)
+                    .map(e -> (String) e.getSourceAsMap().get("integrity"))
+                    .distinct()
+                    .collect(Collectors.toList());
+            return new RestResult<>(RestEnum.SUCCESS,
+                    SearchIntegrityResp.builder().integrityList(integrityList).build());
+        }catch (Exception e) {
+            log.error("EsServiceImpl.getIntegrityList has error:{}",e.getMessage());
         }
         return new RestResult<>(RestEnum.FAILED);
     }
@@ -578,11 +806,32 @@ public class EsServiceImpl {
         SearchHit[] searchHits = response.getHits().getHits();
         if (!CollectionUtils.isEmpty(Arrays.stream(searchHits).collect(Collectors.toList()))) {
             for (SearchHit hit : Arrays.stream(searchHits).collect(Collectors.toList())) {
+                if (hit == null) {
+                    continue;
+                }
+
                 SearchResp.UserData userData = new SearchResp.UserData();
                 userData.setUserId(hit.getSourceAsMap().get("user_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_id")));
                 userData.setUuid(hit.getSourceAsMap().get("uuid") == null ? "" : String.valueOf(hit.getSourceAsMap().get("uuid")));
                 userData.setUserName(hit.getSourceAsMap().get("screen_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("screen_name")));
-                userData.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
+
+
+                if (hit.getSourceAsMap().get("use_name") == null) {
+                    userData.setUserQuanName("");
+                }else {
+                    String qName = String.valueOf(hit.getSourceAsMap().get("use_name"));
+                    String languageType = String.valueOf(hit.getSourceAsMap().get("language_type"));
+                    if ("zh".equals(languageType)) {
+                        userData.setUserQuanName(qName.trim());
+                    }
+//                    else if ("en".equals(languageType)) {
+//                        userData.setUserQuanName(CountryUtil.handleStr(qName));
+//                    }
+                    else {
+                        userData.setUserQuanName(qName);
+                    }
+                }
+
                 userData.setPhoneNum(hit.getSourceAsMap().get("mobile") == null ? "" : String.valueOf(hit.getSourceAsMap().get("mobile")));
                 userData.setEmail(hit.getSourceAsMap().get("email") == null ? "" : String.valueOf(hit.getSourceAsMap().get("email")));
 
@@ -592,7 +841,6 @@ public class EsServiceImpl {
                                         CountryUtil.getCountryName(String.valueOf(hit.getSourceAsMap().get("country"))))
                 );
 
-                userData.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
                 userData.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
                 userData.setUserHomePage(hit.getSourceAsMap().get("user_web_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_web_url")));
 
@@ -605,7 +853,15 @@ public class EsServiceImpl {
                 userData.setMarriage(hit.getSourceAsMap().get("marriage") == null ? "未知" : String.valueOf(hit.getSourceAsMap().get("marriage")));
                 userData.setFollowersCount(hit.getSourceAsMap().get("followers_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("followers_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("followers_count"))));
                 userData.setFriendCount(hit.getSourceAsMap().get("friend_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("friend_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("friend_count"))));
-                userData.setMaidernName(hit.getSourceAsMap().get("name_userd_before") == null ? "" : String.valueOf(hit.getSourceAsMap().get("name_userd_before")));
+
+
+                if (hit.getSourceAsMap().get("name_userd_before") == null) {
+                    userData.setMaidernName("");
+                }else {
+                    Map<String, Object> map = JacksonUtil.strToBean(String.valueOf(hit.getSourceAsMap().get("name_userd_before")), Map.class);
+                    userData.setMaidernName(map.get("userFormerName") == null ? "" : (String) map.get("userFormerName"));
+                }
+
                 userData.setUserReligion(hit.getSourceAsMap().get("user_religio") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_religio")));
                 userData.setWorks(hit.getSourceAsMap().get("works") == null ? "" : String.valueOf(hit.getSourceAsMap().get("works")));
                 userData.setPositionMessage(hit.getSourceAsMap().get("location") == null ? "" : String.valueOf(hit.getSourceAsMap().get("location")));
@@ -642,8 +898,8 @@ public class EsServiceImpl {
             if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
                 boolQueryBuilder.must(QueryBuilders.matchQuery("use_name.keyword", searchReq.getUserQuanName()));
             }
-            if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before.keyword", searchReq.getBeforeName()));
+            if (StringUtils.isNotBlank(searchReq.getNameUserdBefore())) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before.keyword", searchReq.getNameUserdBefore()));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
                 boolQueryBuilder.must(QueryBuilders.matchQuery("mobile.keyword", searchReq.getPhoneNum()));
@@ -668,98 +924,60 @@ public class EsServiceImpl {
             if (StringUtils.isNotBlank(searchReq.getCity())) {
                 boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity()));
             }
-//            if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary.keyword", searchReq.getCity()));
-//            }
+            if (searchReq.getIntegrity() != null) {
+                boolQueryBuilder.must(QueryBuilders.matchQuery("integrity.keyword", searchReq.getCity()));
+            }
         }else {
-//            //分词查询
-//            if (StringUtils.isNotBlank(searchReq.getUserId())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id", searchReq.getUserId()));
-//            }
-//            if (StringUtils.isNotBlank(searchReq.getUserName())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name", searchReq.getUserName()));
-//            }
-//            if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name", searchReq.getUserQuanName()));
-//            }
-//            if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before", searchReq.getBeforeName()));
-//            }
-//            if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile", searchReq.getPhoneNum()));
-//            }
-//            if (StringUtils.isNotBlank(searchReq.getEmail())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("email", searchReq.getEmail()));
-//            }
-//            if (StringUtils.isNotBlank(searchReq.getCountry())) {
-//                //均大写
-//                if (ReaderFileUtil.isAcronym(searchReq.getCountry(), true)) {
-//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry()));
-//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry().toLowerCase()));
-//                }
-//                //均小写
-//                else if (ReaderFileUtil.isAcronym(searchReq.getCountry(), false)) {
-//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry()));
-//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry().toUpperCase()));
-//                }else {
-//                    boolQueryBuilder.must(QueryBuilders.matchQuery("country", searchReq.getCountry()));
-//                }
-//            }
-//            if (StringUtils.isNotBlank(searchReq.getCity())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("city", searchReq.getCity()));
-//            }
             //分词查询
             if (StringUtils.isNotBlank(searchReq.getUserId())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id", searchReq.getUserId()));
                 boolQueryBuilder.must(QueryBuilders.wildcardQuery("user_id", "*"+searchReq.getUserId()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getUserName())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name", searchReq.getUserName()));
-                boolQueryBuilder.must(QueryBuilders.wildcardQuery("screen_name", "*"+searchReq.getUserName()+"*"));
+                boolQueryBuilder.should(QueryBuilders.wildcardQuery("screen_name", "*"+searchReq.getUserName()+"*"));
+                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserName()+"*").field("screen_name"));
             }
             if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name", searchReq.getUserQuanName()));
-                boolQueryBuilder.must(QueryBuilders.wildcardQuery("use_name", "*"+searchReq.getUserQuanName()+"*"));
+                boolQueryBuilder.should(QueryBuilders.wildcardQuery("use_name", "*"+searchReq.getUserQuanName()+"*"));
+                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserQuanName()+"*").field("use_name"));
             }
-            if (StringUtils.isNotBlank(searchReq.getBeforeName())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before", searchReq.getBeforeName()));
-                boolQueryBuilder.must(QueryBuilders.wildcardQuery("name_userd_before", "*"+searchReq.getBeforeName()+"*"));
+            if (StringUtils.isNotBlank(searchReq.getNameUserdBefore())) {
+                boolQueryBuilder.should(QueryBuilders.wildcardQuery("name_userd_before", "*"+searchReq.getNameUserdBefore()+"*"));
+                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getNameUserdBefore()+"*").field("name_userd_before"));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile", searchReq.getPhoneNum()));
                 boolQueryBuilder.must(QueryBuilders.wildcardQuery("mobile", "*"+searchReq.getPhoneNum()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getEmail())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("email", searchReq.getEmail()));
-                boolQueryBuilder.must(QueryBuilders.wildcardQuery("email", "*"+searchReq.getEmail()+"*"));
+                if (searchReq.getEmail().contains(".")) {
+                    String[] emailArray = searchReq.getEmail().split("\\.");
+                    if (!CollectionUtils.isEmpty(Lists.newArrayList(emailArray))) {
+                        Lists.newArrayList(emailArray).forEach(e -> boolQueryBuilder.should(QueryBuilders.wildcardQuery("email", "*"+e+"*")));
+                    }
+                }else {
+                    boolQueryBuilder.must(QueryBuilders.wildcardQuery("email", "*"+searchReq.getEmail()+"*"));
+                }
             }
             if (StringUtils.isNotBlank(searchReq.getCountry())) {
                 //均大写
                 if (ReaderFileUtil.isAcronym(searchReq.getCountry(), true)) {
-//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry()));
-//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry().toLowerCase()));
                     boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry()+"*"));
                     boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry().toLowerCase()+"*"));
                 }
                 //均小写
                 else if (ReaderFileUtil.isAcronym(searchReq.getCountry(), false)) {
-//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry()));
-//                    boolQueryBuilder.should(QueryBuilders.matchQuery("country", searchReq.getCountry().toUpperCase()));
                     boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry()+"*"));
                     boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry().toUpperCase()+"*"));
                 }else {
-//                    boolQueryBuilder.must(QueryBuilders.matchQuery("country", searchReq.getCountry()));
                     boolQueryBuilder.should(QueryBuilders.wildcardQuery("country", "*"+searchReq.getCountry()+"*"));
                 }
             }
             if (StringUtils.isNotBlank(searchReq.getCity())) {
-//                boolQueryBuilder.must(QueryBuilders.matchQuery("city", searchReq.getCity()));
                 boolQueryBuilder.must(QueryBuilders.wildcardQuery("city", "*"+searchReq.getCity()+"*"));
             }
         }
         if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
-//            boolQueryBuilder.must(QueryBuilders.matchQuery("user_summary", searchReq.getUserSummary()));
-            boolQueryBuilder.must(QueryBuilders.wildcardQuery("user_summary", "*"+searchReq.getUserSummary()+"*"));
+            boolQueryBuilder.should(QueryBuilders.wildcardQuery("user_summary", "*"+searchReq.getUserSummary()+"*"));
+            boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserSummary()+"*").field("user_summary"));
         }
     }
 }

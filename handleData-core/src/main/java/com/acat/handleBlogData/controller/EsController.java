@@ -4,6 +4,7 @@ import com.acat.handleBlogData.aop.Auth;
 import com.acat.handleBlogData.constants.RestResult;
 import com.acat.handleBlogData.constants.UrlConstants;
 import com.acat.handleBlogData.controller.req.SearchDetailReq;
+import com.acat.handleBlogData.controller.resp.SearchBeforeNameResp;
 import com.acat.handleBlogData.enums.BatchSearchFieldEnum;
 import com.acat.handleBlogData.enums.MediaSourceEnum;
 import com.acat.handleBlogData.enums.RestEnum;
@@ -12,6 +13,7 @@ import com.acat.handleBlogData.controller.req.SearchReq;
 import com.acat.handleBlogData.controller.resp.SearchResp;
 import com.acat.handleBlogData.controller.resp.UserDetailResp;
 import com.acat.handleBlogData.util.ReaderFileUtil;
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
@@ -33,6 +35,8 @@ public class EsController {
     private EsServiceImpl esService;
 
     public static final String TXT_EXTENSION = ".txt";
+
+    public static List<String> statList = Lists.newArrayList("country", "city");
 
     @Auth(required = false)
     @PostMapping("/upload")
@@ -108,10 +112,6 @@ public class EsController {
                 return new RestResult<>(RestEnum.FILE_TYPE_ERROR);
             }
 
-//            if (pageNum == null || pageSize == null) {
-//                return new RestResult<>(RestEnum.FEN_YE_ERROR);
-//            }
-
             if (StringUtils.isBlank(searchField)) {
                 return new RestResult<>(RestEnum.BATCH_QUERY_FIELD_EMPTY);
             }
@@ -130,6 +130,44 @@ public class EsController {
             return esService.batchQuery(searchField, fieldList, isParticiple);
         }catch (Exception e) {
             log.error("EsController.retrieveDataList has error:{}",e.getMessage());
+            return new RestResult<>(RestEnum.FAILED.getCode(), e.getMessage(), null);
+        }
+    }
+
+
+    @Auth(required = false)
+    @GetMapping("/queryCountryOrCity")
+    public RestResult<List<String>> queryCountryOrCity(String textValue, String fieldName) {
+
+        try {
+            if (StringUtils.isBlank(textValue)) {
+                return new RestResult<>(RestEnum.TRAN_VALUE_IS_EMPTY.getCode(), "搜索字段不能为空！！！");
+            }
+            if (StringUtils.isBlank(fieldName)
+            || !statList.contains(fieldName)) {
+                return new RestResult<>(RestEnum.TRAN_VALUE_IS_EMPTY.getCode(), "国家或城市字段搜索错误！！！");
+            }
+            return esService.queryCountryOrCity(textValue, fieldName);
+        }catch (Exception e) {
+            log.error("EsController.queryCountryOrCity has error:{}",e.getMessage());
+            return new RestResult<>(RestEnum.FAILED.getCode(), e.getMessage(), null);
+        }
+    }
+
+    @Auth
+    @GetMapping("/searchBeforeNameInfo")
+    public RestResult<SearchBeforeNameResp> searchBeforeNameInfo(String userId, String userName) {
+
+        try {
+            if (StringUtils.isBlank(userId)) {
+                return new RestResult<>(RestEnum.TRAN_VALUE_IS_EMPTY.getCode(), "用户Id字段不能为空！！！");
+            }
+            if (StringUtils.isBlank(userName)) {
+                return new RestResult<>(RestEnum.TRAN_VALUE_IS_EMPTY.getCode(), "用户名字段不能为空！！！");
+            }
+            return esService.searchBeforeNameInfo(userId, userName);
+        }catch (Exception e) {
+            log.error("EsController.searchBeforeNameInfo has error:{}",e.getMessage());
             return new RestResult<>(RestEnum.FAILED.getCode(), e.getMessage(), null);
         }
     }
