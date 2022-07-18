@@ -479,9 +479,12 @@ public class EsServiceImpl {
     public RestResult<List<String>> queryCountryOrCity(String textValue, String fieldName) {
 
         try {
-            List<String> list = redisService.range(fieldName, 0L, -1L);
-            if (!CollectionUtils.isEmpty(list)) {
-                return new RestResult<>(RestEnum.SUCCESS, list.stream().filter(e -> e.contains(textValue)).distinct().collect(Collectors.toList()));
+
+            if ("country".equals(fieldName)) {
+                List<String> list = redisService.range(fieldName, 0L, -1L);
+                if (!CollectionUtils.isEmpty(list)) {
+                    return new RestResult<>(RestEnum.SUCCESS, list.stream().filter(e -> e.contains(textValue)).distinct().collect(Collectors.toList()));
+                }
             }
 
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
@@ -738,7 +741,7 @@ public class EsServiceImpl {
             if ("test".equals(env) || "pre".equals(env)) {
                 builder.from(0).size(10000);
             }else {
-                builder.from(0).size(900000000);
+                builder.from(0).size(10000);
             }
 
             //搜索
@@ -782,7 +785,7 @@ public class EsServiceImpl {
     public RestResult<SearchIntegrityResp> getIntegrityList() {
         try {
             String[] includeFields = new String[]{"integrity"};
-            CollapseBuilder collapseBuilder = new CollapseBuilder("integrity.keyword");
+            CollapseBuilder collapseBuilder = new CollapseBuilder("integrity");
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery())
                     .fetchSource(includeFields, null)
@@ -814,7 +817,7 @@ public class EsServiceImpl {
 
             List<String> integrityList = Arrays.stream(searchHits)
                     .filter(e -> e.getSourceAsMap().get("integrity") != null)
-                    .map(e -> (String) e.getSourceAsMap().get("integrity"))
+                    .map(e -> e.getSourceAsMap().get("integrity").toString())
                     .distinct()
                     .collect(Collectors.toList());
             return new RestResult<>(RestEnum.SUCCESS,
