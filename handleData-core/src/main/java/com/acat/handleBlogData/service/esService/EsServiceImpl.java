@@ -375,7 +375,7 @@ public class EsServiceImpl {
                 userDetailResp.setEmail(PatternUtil.handleStr(PatternUtil.checkEmailAndGet(String.valueOf(hit.getSourceAsMap().get("email")))));
             }
 
-            userDetailResp.setWorks(PatternUtil.handleStr(hit.getSourceAsMap().get("works") == null ? "" : String.valueOf(hit.getSourceAsMap().get("works"))));
+            userDetailResp.setWorks(PatternUtil.handleStr(PatternUtil.handleWorks(hit.getSourceAsMap().get("works") == null ? "" : String.valueOf(hit.getSourceAsMap().get("works")))));
             userDetailResp.setPositionMessage(PatternUtil.handleStr(hit.getSourceAsMap().get("location") == null ? "" : String.valueOf(hit.getSourceAsMap().get("location"))));
             userDetailResp.setHomeAddress(PatternUtil.handleStr(hit.getSourceAsMap().get("home_town") == null ? "" : String.valueOf(hit.getSourceAsMap().get("home_town"))));
             userDetailResp.setLanguage(PatternUtil.handleStr(hit.getSourceAsMap().get("language_type") == null ? "" : String.valueOf(hit.getSourceAsMap().get("language_type"))));
@@ -445,7 +445,7 @@ public class EsServiceImpl {
      * @param isParticiple
      * @return
      */
-    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList, Integer isParticiple) {
+    public RestResult<SearchResp> batchQuery(String searchField, List<String> fieldList, Integer isParticiple, Integer pageNum, Integer pageSize) {
         try {
             BoolQueryBuilder bigBuilder = QueryBuilders.boolQuery();
             BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
@@ -461,13 +461,13 @@ public class EsServiceImpl {
 
             SearchSourceBuilder builder = new SearchSourceBuilder()
                     .query(bigBuilder)
-//                    .from(0).size(10000)
+                    .from((pageNum > 0 ? (pageNum - 1) : 0) * pageSize).size(pageSize)
                     .trackTotalHits(true);
-            if ("test".equals(env) || "pre".equals(env)) {
-                builder.from(0).size(10000);
-            }else {
-                builder.from(0).size(900000000);
-            }
+//            if ("test".equals(env) || "pre".equals(env)) {
+//                builder.from(0).size(10000);
+//            }else {
+//                builder.from(0).size(900000000);
+//            }
 
             //搜索
             SearchRequest searchRequest = new SearchRequest();
@@ -680,7 +680,7 @@ public class EsServiceImpl {
             }
 
             List<String> countryList = Arrays.stream(searchHits)
-                    .filter(e -> e.getSourceAsMap().get("country") != null)
+                    .filter(e -> StringUtils.isNotBlank(String.valueOf(e.getSourceAsMap().get("country"))))
                     .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
                     .distinct()
                     .collect(Collectors.toList());
@@ -741,7 +741,7 @@ public class EsServiceImpl {
             }
 
             List<String> cityList = Arrays.stream(searchHits)
-                    .filter(e -> e.getSourceAsMap().get("city") != null)
+                    .filter(e -> StringUtils.isNotBlank(String.valueOf(e.getSourceAsMap().get("city"))))
                     .map(e -> (String) e.getSourceAsMap().get("city"))
                     .distinct()
                     .collect(Collectors.toList());
@@ -917,7 +917,7 @@ public class EsServiceImpl {
                 }
 
                 userData.setUserReligion(PatternUtil.handleStr(hit.getSourceAsMap().get("user_religio") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_religio"))));
-                userData.setWorks(PatternUtil.handleStr(hit.getSourceAsMap().get("works") == null ? "" : String.valueOf(hit.getSourceAsMap().get("works"))));
+                userData.setWorks(PatternUtil.handleStr(PatternUtil.handleWorks(hit.getSourceAsMap().get("works") == null ? "" : String.valueOf(hit.getSourceAsMap().get("works")))));
                 userData.setPositionMessage(PatternUtil.handleStr(hit.getSourceAsMap().get("location") == null ? "" : String.valueOf(hit.getSourceAsMap().get("location"))));
                 userData.setHomeAddress(PatternUtil.handleStr(hit.getSourceAsMap().get("home_town") == null ? "" : String.valueOf(hit.getSourceAsMap().get("home_town"))));
 
