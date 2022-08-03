@@ -1,0 +1,36 @@
+name: build & push handleData-core docker images
+ 
+on:   # 配置触发workflow的事件
+  push:
+    tags:       # tag更新时触发此workflow
+      - '*'
+
+env:
+  IMAGE_NAME: handle-data-core
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JDK 1.8
+      uses: actions/setup-java@v1
+      with:
+        java-version: 1.8
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml
+    - name: Build Docker Image
+      run: docker build . --file handleData-core/dockerfile --tag $IMAGE_NAME
+    - name: Login Dockerhub
+      run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u betaincao --password-stdin
+    - name: Push Docker Image
+      run: |
+        IMAGE_ID=betaincao/$IMAGE_NAME
+        IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
+        VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+        [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+        [ "$VERSION" == "master" ] && VERSION=latest
+        echo IMAGE_ID=$IMAGE_ID
+        echo VERSION=$VERSION
+        docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
+        docker push $IMAGE_ID:$VERSION
