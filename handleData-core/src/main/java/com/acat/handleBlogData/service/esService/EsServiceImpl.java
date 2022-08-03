@@ -18,12 +18,15 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.lucene.search.TotalHits;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.search.SearchResponseSections;
 import org.elasticsearch.client.HttpAsyncResponseConsumerFactory;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
+import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.collapse.CollapseBuilder;
 import org.elasticsearch.search.sort.SortOrder;
@@ -96,7 +99,7 @@ public class EsServiceImpl {
         MediaSourceEnum.LINKEDIN_IMPL.getEs_index(),
         MediaSourceEnum.LINKEDIN_HISTORY.getEs_index(),
         MediaSourceEnum.LINKEDIN_BUSINESS.getEs_index(),
-        MediaSourceEnum.LINKEDIN_SCHOOL.getEs_index()
+        MediaSourceEnum.LINKEDIN_SCHOOL.getEs_index(),
     };
 
     /**
@@ -245,6 +248,10 @@ public class EsServiceImpl {
                 searchReq.setIsParticiple(1);
             }
 
+            if (searchReq.getIsParticiple().equals(1) && StringUtils.isNotBlank(searchReq.getUserSummary())) {
+                return new RestResult<>(RestEnum.FIELD_NOT_SUPPORT_DIM_SEARCH,  "用户简介不支持精准查询,请改为模糊(分词)查询");
+            }
+
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
             assembleParam(searchReq, boolQueryBuilder);
 
@@ -266,10 +273,16 @@ public class EsServiceImpl {
             if (response == null) {
                 return new RestResult<>(RestEnum.PLEASE_TRY);
             }
+
+            SearchHits searchHits = response.getHits();
+            if (searchHits == null || searchHits.getHits() == null) {
+                return new RestResult<>(RestEnum.FIELD_NOT_SUPPORT_DIM_SEARCH,
+                        "您好,此搜索条件会存在超时风险,请更换搜索条件,系统正在持续优化中ing！！！");
+            }
             return new RestResult<>(RestEnum.SUCCESS, assembleParam(response));
         }catch (Exception e) {
             log.error("EsServiceImpl.searchData has error:{}",e.getMessage());
-            return new RestResult<>(RestEnum.FAILED);
+            return new RestResult<>(RestEnum.FAILED, "您好,此搜索条件会存在超时风险,请更换搜索条件,系统正在持续优化中ing！！！");
         }
     }
 
@@ -340,7 +353,7 @@ public class EsServiceImpl {
             userDetailResp.setPostCount(PatternUtil.handleStr(PatternUtil.handleFollowersCount(hit.getSourceAsMap().get("post_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("post_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("post_count"))))));
             userDetailResp.setLikeCount(PatternUtil.handleStr(PatternUtil.handleFollowersCount(hit.getSourceAsMap().get("like_count") == null ? "0" : ("null".equals(String.valueOf(hit.getSourceAsMap().get("like_count"))) ? "0" : String.valueOf(hit.getSourceAsMap().get("like_count"))))));
             userDetailResp.setDataId(PatternUtil.handleStr(hit.getSourceAsMap().get("source_id") == null ? "" : String.valueOf(hit.getSourceAsMap().get("source_id"))));
-            userDetailResp.setUserHomePage(PatternUtil.handleStr(hit.getSourceAsMap().get("user_web_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_web_url"))));
+            userDetailResp.setUserHomePage(PatternUtil.handleStr(hit.getSourceAsMap().get("user_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_url"))));
 
             userDetailResp.setUserType(PatternUtil.handleStr(
                     hit.getSourceAsMap().get("user_type") == null ? UserTypeEnum.WEI_ZHI.getDesc() :
@@ -954,7 +967,7 @@ public class EsServiceImpl {
                 );
 
                 userData.setCity(PatternUtil.handleStr(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city"))));
-                userData.setUserHomePage(PatternUtil.handleStr(hit.getSourceAsMap().get("user_web_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_web_url"))));
+                userData.setUserHomePage(PatternUtil.handleStr(hit.getSourceAsMap().get("user_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_url"))));
 
                 userData.setGender(PatternUtil.handleStr(
                         hit.getSourceAsMap().get("gender") == null ? GenderEnum.WEI_ZHI.getDesc() :
@@ -1059,8 +1072,8 @@ public class EsServiceImpl {
                 boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getNameUserdBefore()+"*").field("name_userd_before"));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-                boolQueryBuilder.should(QueryBuilders.wildcardQuery("mobile", "*"+searchReq.getPhoneNum()+"*"));
-                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getPhoneNum()+"*").field("mobile"));
+//                boolQueryBuilder.must(QueryBuilders.fuzzyQuery("mobile", "*"+searchReq.getPhoneNum()+"*").fuzziness(Fuzziness.AUTO));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("mobile", "*"+searchReq.getPhoneNum()+"*"));
             }
             if (StringUtils.isNotBlank(searchReq.getEmail())) {
                 if (searchReq.getEmail().contains(".")) {
