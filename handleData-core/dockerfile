@@ -1,0 +1,5 @@
+FROM openjdk:8-jre
+
+COPY handleData-core/target/*.jar application-core.jar
+
+ENTRYPOINT ["java", "-jar", "application-core.jar"]
