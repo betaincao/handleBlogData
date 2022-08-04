@@ -25,6 +25,7 @@ import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.collapse.CollapseBuilder;
+import org.elasticsearch.search.sort.SortOrder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
@@ -83,7 +84,7 @@ public class EsServiceV2Impl {
             sourceBuilder.query(boolQueryBuilder);
             sourceBuilder.from((searchReq.getPageNum() > 0 ? (searchReq.getPageNum() - 1) : 0) * searchReq.getPageSize()).size(searchReq.getPageSize());
             sourceBuilder.trackTotalHits(true);
-//            sourceBuilder.sort("integrity.keyword", SortOrder.DESC);
+            sourceBuilder.sort("integrity.keyword", SortOrder.DESC);
 
             SearchRequest searchRequest = new SearchRequest();
             if (!judgeSearchParamAllEmpty(searchReq)) {
@@ -208,7 +209,10 @@ public class EsServiceV2Impl {
                     if ("_class".equals(key)) {
                         continue;
                     }
-                    newObjectMap.put(FieldUtils.getFieldNameFromZh(key) != null ? FieldUtils.getFieldNameFromZh(key) : key, stringObjectMap.get(key));
+                    newObjectMap.put(
+                            FieldUtils.getFieldNameFromZh(key) != null ? FieldUtils.getFieldNameFromZh(key) : key,
+                            "impl_or_history_type".equals(key) ? ("imp".equals(stringObjectMap.get(key)) ? "完整属性" : "部分属性") : stringObjectMap.get(key)
+                    );
                 }
             }
             userDetailResp.setFieldMap(newObjectMap);
@@ -259,7 +263,7 @@ public class EsServiceV2Impl {
             return new RestResult<>(RestEnum.SUCCESS, assembleResult(response));
         }catch (Exception e) {
             log.error("EsServiceV2Impl.batchQuery has error:{}",e.getMessage());
-            sendEmailService.sendSimpleEmail(assemblingBean(e, "批量查询接口", ImmutableMap.of("fieldList",fieldList,"isParticiple",isParticiple,"pageNum",pageNum,"pageSize",pageSize)));
+            sendEmailService.sendSimpleEmail(assemblingBean(e, "批量查询接口", ImmutableMap.of("searchField",searchField,"fieldList",fieldList,"isParticiple",isParticiple,"pageNum",pageNum,"pageSize",pageSize)));
             return new RestResult<>(RestEnum.FAILED);
         }
     }
@@ -877,7 +881,7 @@ public class EsServiceV2Impl {
         return SendEmailReq
                 .builder()
                 .subject("系统报错通知")
-                .content("当前时间" + new Date() + interFaceName + "报错," + "报错信息:" + e.getMessage() + "," + "入参为:" + JacksonUtil.beanToStr(object))
+                .content("当前时间" + DateUtils.dateToStr(new Date()) + interFaceName + "报错," + "报错信息:" + e.getMessage() + "," + "入参为:" + JacksonUtil.beanToStr(object))
                 .build();
     }
 }
