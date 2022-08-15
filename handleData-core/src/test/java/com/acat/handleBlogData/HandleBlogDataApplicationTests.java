@@ -1,6 +1,10 @@
 package com.acat.handleBlogData;
 
 import co.elastic.clients.elasticsearch.indices.DeleteIndexRequest;
+import org.elasticsearch.action.admin.indices.alias.get.GetAliasesRequest;
+import org.elasticsearch.action.admin.indices.settings.get.GetSettingsRequest;
+import org.elasticsearch.client.GetAliasesResponse;
+import org.elasticsearch.client.indices.GetIndexRequest;
 import com.acat.handleBlogData.constants.RedisKeyConstants;
 import com.acat.handleBlogData.constants.RestResult;
 import com.acat.handleBlogData.dao.UserDao;
@@ -11,7 +15,6 @@ import com.acat.handleBlogData.domain.esEntityV2.FbUserData_v2;
 import com.acat.handleBlogData.enums.MediaSourceEnum;
 import com.acat.handleBlogData.enums.RestEnum;
 import com.acat.handleBlogData.outerService.outerInterface.TranslateOuterServiceImpl;
-import com.acat.handleBlogData.outerService.outerInterface.WxNoticeServiceImpl;
 import com.acat.handleBlogData.service.redisService.RedisServiceImpl;
 import com.acat.handleBlogData.util.CountryUtil;
 import com.acat.handleBlogData.util.JacksonUtil;
@@ -22,12 +25,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.update.UpdateRequest;
+import org.elasticsearch.action.update.UpdateResponse;
 import org.elasticsearch.client.HttpAsyncResponseConsumerFactory;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.client.core.AcknowledgedResponse;
+import org.elasticsearch.client.indices.GetIndexResponse;
+import org.elasticsearch.cluster.metadata.AliasMetadata;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.collapse.CollapseBuilder;
 import org.elasticsearch.search.sort.SortOrder;
@@ -41,9 +49,8 @@ import org.springframework.util.CollectionUtils;
 
 import javax.annotation.Resource;
 import java.io.IOException;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @SpringBootTest
 @Slf4j
@@ -78,8 +85,8 @@ class HandleBlogDataApplicationTests {
     private ElasticsearchRestTemplate elasticsearchRestTemplate;
     @Resource
     private RedisServiceImpl redisService;
-    @Resource
-    private WxNoticeServiceImpl wxNoticeService;
+
+    private static final List<String> fieldList = Lists.newArrayList("台湾", "香港", "澳门", "中国台湾", "中国香港", "中国澳门");
 //    @Resource
 //    private SendEmailService sendEmailService;
 
@@ -476,19 +483,71 @@ class HandleBlogDataApplicationTests {
     }
 
     @Test
-    public void test16() {
-        wxNoticeService.sendWxMsg("hello");
+    public void test17() throws Exception {
+
+        BoolQueryBuilder bigBuilder = QueryBuilders.boolQuery();
+        BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
+        for(String fieldValue: fieldList){
+            channelQueryBuilder.should(QueryBuilders.matchQuery("country", fieldValue));
+        }
+        bigBuilder.must(channelQueryBuilder);
+
+        SearchSourceBuilder builder = new SearchSourceBuilder()
+                .query(bigBuilder)
+                .trackTotalHits(true);
+
+
+        //搜索
+        SearchRequest searchRequest = new SearchRequest();
+        searchRequest.indices("twitter_v2");
+        searchRequest.types("_doc");
+        searchRequest.source(builder);
+        // 执行请求
+        SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
+        if (response == null) {
+
+        }
+
+        SearchHit[] searchHits = response.getHits().getHits();
+        if (CollectionUtils.isEmpty(Arrays.stream(searchHits).collect(Collectors.toList()))) {
+            return;
+        }
+
+//            Arrays.stream(searchHits).collect(Collectors.toList()).forEach(e -> {
+//
+//                Map map = new HashMap();
+//                map.put("country", "中国");
+//                UpdateRequest updateRequest = new UpdateRequest("twitter_v2", e.getId()).doc(map);
+//                restHighLevelClient.update(updateRequest, toBuilder());
+////
+//            });
+        for (SearchHit documentFields : Arrays.stream(searchHits).collect(Collectors.toList())) {
+            Map map = new HashMap();
+            map.put("country", "中国");
+            UpdateRequest updateRequest = new UpdateRequest("twitter_v2", documentFields.getId()).doc(map);
+            restHighLevelClient.update(updateRequest, toBuilder());
+        }
     }
 
     @Test
-    public void test17() {
-        System.out.println(wxNoticeService.getWxNoticeToken());
-    }
+    public void test18() throws Exception{
+        GetIndexRequest request = new GetIndexRequest("twitter_v2", "instagram_v2");
+        GetIndexResponse getIndexResponse = restHighLevelClient.indices().get(request, toBuilder());
+        System.out.println(JacksonUtil.beanToStr(getIndexResponse.getAliases()));
+        System.out.println(JacksonUtil.beanToStr(getIndexResponse.getIndices()));
+        System.out.println(JacksonUtil.beanToStr(getIndexResponse.getMappings()));
+        System.out.println(JacksonUtil.beanToStr(getIndexResponse.getSettings()));
+        System.out.println(JacksonUtil.beanToStr(getIndexResponse.getDefaultSettings()));
 
-//    @Test
-//    public void test17() {
-//        wxNoticeService.sendWxMsg();
-//    }
+//        GetSettingsRequest request = new GetSettingsRequest();
+//        GetAliasesResponse getAliasesResponse =  restHighLevelClient.indices().getSettings(request, RequestOptions.DEFAULT);
+//        Map<String, Set<AliasMetadata>> map = getAliasesResponse.getAliases();
+//        Set<String> indices = map.keySet();
+//        for (String key : indices) {
+//            System.out.println(key);
+//        }
+
+    }
 
     private RequestOptions toBuilder() {
         RequestOptions.Builder builder = RequestOptions.DEFAULT.toBuilder();
