@@ -18,6 +18,8 @@ import org.elasticsearch.action.update.UpdateRequest;
 import org.elasticsearch.client.HttpAsyncResponseConsumerFactory;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
+import org.elasticsearch.client.core.CountRequest;
+import org.elasticsearch.client.core.CountResponse;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
@@ -285,20 +287,14 @@ public class EsServiceV2Impl {
      */
     public Long getMediaIndexSize(MediaSourceEnum mediaSourceEnum) {
         try {
-            SearchSourceBuilder builder = new SearchSourceBuilder()
-                    .query(QueryBuilders.matchAllQuery())
-                    .trackTotalHits(true);
-            //搜索
-            SearchRequest searchRequest = new SearchRequest();
+            CountRequest countRequest = new CountRequest();
             if (MediaSourceEnum.ALL == mediaSourceEnum) {
-                searchRequest.indices(indexArray_v2);
+                countRequest.indices(indexArray_v2);
             }else {
-                searchRequest.indices(mediaSourceEnum.getEs_index_v2());
+                countRequest.indices(mediaSourceEnum.getEs_index_v2());
             }
-            searchRequest.types("_doc");
-            searchRequest.source(builder);
-            SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
-            return response == null ? 0L : response.getHits().getTotalHits().value;
+            CountResponse countResponse = restHighLevelClient.count(countRequest, toBuilder());
+            return countResponse == null ? 0L : countResponse.getCount();
         }catch (Exception e) {
             log.error("EsServiceV2Impl.getMediaIndexSize has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "查询索引数量接口", mediaSourceEnum));
@@ -318,48 +314,48 @@ public class EsServiceV2Impl {
 //                return new RestResult<>(RestEnum.SUCCESS,
 //                        SearchCountryResp.builder().countryList(countryListFromCache).build());
 //            }
-//
-//            String[] includeFields = new String[]{"country"};
-//            CollapseBuilder collapseBuilder = new CollapseBuilder("country.keyword");
-//            SearchSourceBuilder builder = new SearchSourceBuilder()
-//                    .query(QueryBuilders.matchAllQuery())
-//                    .fetchSource(includeFields, null)
-//                    .collapse(collapseBuilder)
-////                    .from(0).size(10000)
-//                    .trackTotalHits(true);
-//            if ("test".equals(env) || "pre".equals(env)) {
-//                builder.from(0).size(10000);
-//            }else {
-//                builder.from(0).size(10000);
+
+            String[] includeFields = new String[]{"country"};
+            CollapseBuilder collapseBuilder = new CollapseBuilder("country.keyword");
+            SearchSourceBuilder builder = new SearchSourceBuilder()
+                    .query(QueryBuilders.matchAllQuery())
+                    .fetchSource(includeFields, null)
+                    .collapse(collapseBuilder)
+//                    .from(0).size(10000)
+                    .trackTotalHits(true);
+            if ("test".equals(env) || "pre".equals(env)) {
+                builder.from(0).size(10000);
+            }else {
+                builder.from(0).size(10000);
+            }
+
+            //搜索
+            SearchRequest searchRequest = new SearchRequest();
+            searchRequest.indices(indexArray_v2);
+            searchRequest.types("_doc");
+            searchRequest.source(builder);
+            // 执行请求
+            SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
+            if (response == null) {
+                return new RestResult<>(RestEnum.PLEASE_TRY);
+            }
+
+            SearchHit[] searchHits = response.getHits().getHits();
+            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
+                return new RestResult<>(RestEnum.SUCCESS,
+                        SearchCountryResp.builder().countryList(Lists.newArrayList()).build());
+            }
+
+            List<String> countryList = Arrays.stream(searchHits)
+                    .filter(e -> StringUtils.isNotBlank(String.valueOf(e.getSourceAsMap().get("country"))))
+                    .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
+                    .distinct()
+                    .collect(Collectors.toList());
+
+//            if(!CollectionUtils.isEmpty(countryList)) {
+//                redisService.leftPushAll(COUNTRY_KEY, countryList);
 //            }
-//
-//            //搜索
-//            SearchRequest searchRequest = new SearchRequest();
-//            searchRequest.indices(indexArray_v2);
-//            searchRequest.types("_doc");
-//            searchRequest.source(builder);
-//            // 执行请求
-//            SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
-//            if (response == null) {
-//                return new RestResult<>(RestEnum.PLEASE_TRY);
-//            }
-//
-//            SearchHit[] searchHits = response.getHits().getHits();
-//            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
-//                return new RestResult<>(RestEnum.SUCCESS,
-//                        SearchCountryResp.builder().countryList(Lists.newArrayList()).build());
-//            }
-//
-//            List<String> countryList = Arrays.stream(searchHits)
-//                    .filter(e -> StringUtils.isNotBlank(String.valueOf(e.getSourceAsMap().get("country"))))
-//                    .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
-//                    .distinct()
-//                    .collect(Collectors.toList());
-//
-////            if(!CollectionUtils.isEmpty(countryList)) {
-////                redisService.leftPushAll(COUNTRY_KEY, countryList);
-////            }
-            List<String> countryList = Lists.newArrayList("中国", "美国", "澳大利亚");
+//            List<String> countryList = Lists.newArrayList("中国", "美国", "澳大利亚");
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCountryResp.builder().countryList(countryList).build());
         }catch (Exception e) {
