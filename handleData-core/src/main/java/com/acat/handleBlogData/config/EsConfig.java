@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.TimeUnit;
+
 @Configuration
 @Component
 public class EsConfig {
@@ -32,17 +34,6 @@ public class EsConfig {
             httpHostArray[i] = new HttpHost(item.split(":")[0], Integer.parseInt(item.split(":")[1]), "http");
         }
 
-//        RestClient
-//                .builder(httpHostArray)
-//                .setRequestConfigCallback(new RestClientBuilder.RequestConfigCallback() {
-//                    // 该方法接收一个RequestConfig.Builder对象，对该对象进行修改后然后返回。
-//                    @Override
-//                    public RequestConfig.Builder customizeRequestConfig(
-//                            RequestConfig.Builder requestConfigBuilder) {
-//                        return requestConfigBuilder.setConnectTimeout(5000 * 1000) // 连接超时（默认为1秒）
-//                                .setSocketTimeout(6000 * 1000);// 套接字超时（默认为30秒）//更改客户端的超时限制默认30秒现在改为100*1000分钟
-//                    }
-//                });
         return new RestHighLevelClient(RestClient
                 .builder(httpHostArray)
                 .setRequestConfigCallback(new RestClientBuilder.RequestConfigCallback() {
@@ -50,10 +41,13 @@ public class EsConfig {
                     @Override
                     public RequestConfig.Builder customizeRequestConfig(
                             RequestConfig.Builder requestConfigBuilder) {
-                        return requestConfigBuilder.setConnectTimeout(300000) // 连接超时（默认为1秒）
+                        return requestConfigBuilder
+                                .setConnectTimeout(300000)
                                 .setSocketTimeout(400000)
-                                .setConnectionRequestTimeout(0);// 套接字超时（默认为30秒）//更改客户端的超时限制默认30秒现在改为100*1000分钟
+                                .setConnectionRequestTimeout(10000);
                     }
-                }));
+                })
+                .setHttpClientConfigCallback(requestConfig -> requestConfig.setKeepAliveStrategy(
+                        (response, context) -> TimeUnit.MINUTES.toMillis(1))));
     }
 }

@@ -111,7 +111,7 @@ public class EsServiceV2Impl {
             }
             return new RestResult<>(RestEnum.SUCCESS, assembleResult(response));
         }catch (Exception e) {
-            log.error("EsServiceV2Impl.searchData has error:{}",e.getMessage());
+            log.error("EsServiceV2Impl.searchData has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "搜索查询接口", searchReq));
             return new RestResult<>(RestEnum.FAILED, "您好,此搜索条件会存在超时风险,请更换搜索条件,系统正在持续优化中ing！！！");
         }
@@ -124,7 +124,7 @@ public class EsServiceV2Impl {
 
         try {
             SearchSourceBuilder builder = new SearchSourceBuilder()
-                    .query(QueryBuilders.matchQuery("uuid", searchDetailReq.getUuid()));
+                    .query(QueryBuilders.termQuery("uuid.keyword", searchDetailReq.getUuid()));
 
             //搜索
             SearchRequest searchRequest = new SearchRequest();
@@ -228,7 +228,7 @@ public class EsServiceV2Impl {
             userDetailResp.setFieldMap(newObjectMap);
             return new RestResult<>(RestEnum.SUCCESS, userDetailResp);
         }catch (Exception e) {
-            log.error("EsServiceV2Impl.retrieveUserDetail has error:{}",e.getMessage());
+            log.error("EsServiceV2Impl.retrieveUserDetail has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "查询详情接口", searchDetailReq));
         }
         return new RestResult<>(RestEnum.FAILED);
@@ -272,7 +272,7 @@ public class EsServiceV2Impl {
             }
             return new RestResult<>(RestEnum.SUCCESS, assembleResult(response));
         }catch (Exception e) {
-            log.error("EsServiceV2Impl.batchQuery has error:{}",e.getMessage());
+            log.error("EsServiceV2Impl.batchQuery has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "批量查询接口", ImmutableMap.of("searchField",searchField,"fieldList",fieldList,"isParticiple",isParticiple,"pageNum",pageNum,"pageSize",pageSize)));
             return new RestResult<>(RestEnum.FAILED);
         }
@@ -300,7 +300,7 @@ public class EsServiceV2Impl {
             SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
             return response == null ? 0L : response.getHits().getTotalHits().value;
         }catch (Exception e) {
-            log.error("EsServiceV2Impl.getMediaIndexSize has error:{}",e.getMessage());
+            log.error("EsServiceV2Impl.getMediaIndexSize has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "查询索引数量接口", mediaSourceEnum));
         }
         return 0L;
@@ -318,51 +318,52 @@ public class EsServiceV2Impl {
 //                return new RestResult<>(RestEnum.SUCCESS,
 //                        SearchCountryResp.builder().countryList(countryListFromCache).build());
 //            }
-
-            String[] includeFields = new String[]{"country"};
-            CollapseBuilder collapseBuilder = new CollapseBuilder("country.keyword");
-            SearchSourceBuilder builder = new SearchSourceBuilder()
-                    .query(QueryBuilders.matchAllQuery())
-                    .fetchSource(includeFields, null)
-                    .collapse(collapseBuilder)
-//                    .from(0).size(10000)
-                    .trackTotalHits(true);
-            if ("test".equals(env) || "pre".equals(env)) {
-                builder.from(0).size(10000);
-            }else {
-                builder.from(0).size(900000000);
-            }
-
-            //搜索
-            SearchRequest searchRequest = new SearchRequest();
-            searchRequest.indices(indexArray_v2);
-            searchRequest.types("_doc");
-            searchRequest.source(builder);
-            // 执行请求
-            SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
-            if (response == null) {
-                return new RestResult<>(RestEnum.PLEASE_TRY);
-            }
-
-            SearchHit[] searchHits = response.getHits().getHits();
-            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
-                return new RestResult<>(RestEnum.SUCCESS,
-                        SearchCountryResp.builder().countryList(Lists.newArrayList()).build());
-            }
-
-            List<String> countryList = Arrays.stream(searchHits)
-                    .filter(e -> StringUtils.isNotBlank(String.valueOf(e.getSourceAsMap().get("country"))))
-                    .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
-                    .distinct()
-                    .collect(Collectors.toList());
-
-//            if(!CollectionUtils.isEmpty(countryList)) {
-//                redisService.leftPushAll(COUNTRY_KEY, countryList);
+//
+//            String[] includeFields = new String[]{"country"};
+//            CollapseBuilder collapseBuilder = new CollapseBuilder("country.keyword");
+//            SearchSourceBuilder builder = new SearchSourceBuilder()
+//                    .query(QueryBuilders.matchAllQuery())
+//                    .fetchSource(includeFields, null)
+//                    .collapse(collapseBuilder)
+////                    .from(0).size(10000)
+//                    .trackTotalHits(true);
+//            if ("test".equals(env) || "pre".equals(env)) {
+//                builder.from(0).size(10000);
+//            }else {
+//                builder.from(0).size(10000);
 //            }
+//
+//            //搜索
+//            SearchRequest searchRequest = new SearchRequest();
+//            searchRequest.indices(indexArray_v2);
+//            searchRequest.types("_doc");
+//            searchRequest.source(builder);
+//            // 执行请求
+//            SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
+//            if (response == null) {
+//                return new RestResult<>(RestEnum.PLEASE_TRY);
+//            }
+//
+//            SearchHit[] searchHits = response.getHits().getHits();
+//            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
+//                return new RestResult<>(RestEnum.SUCCESS,
+//                        SearchCountryResp.builder().countryList(Lists.newArrayList()).build());
+//            }
+//
+//            List<String> countryList = Arrays.stream(searchHits)
+//                    .filter(e -> StringUtils.isNotBlank(String.valueOf(e.getSourceAsMap().get("country"))))
+//                    .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
+//                    .distinct()
+//                    .collect(Collectors.toList());
+//
+////            if(!CollectionUtils.isEmpty(countryList)) {
+////                redisService.leftPushAll(COUNTRY_KEY, countryList);
+////            }
+            List<String> countryList = Lists.newArrayList("中国", "美国", "澳大利亚");
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCountryResp.builder().countryList(countryList).build());
         }catch (Exception e) {
-            log.error("EsServiceImpl2.getCountryList has error:{}",e.getMessage());
+            log.error("EsServiceImpl2.getCountryList has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "查询国家列表接口", ""));
         }
         return new RestResult<>(RestEnum.FAILED, "获取国家列表失败");
@@ -424,7 +425,7 @@ public class EsServiceV2Impl {
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCityResp.builder().cityList(cityList).build());
         }catch (Exception e) {
-            log.error("EsServiceImpl2.getCityList has error:{}",e.getMessage());
+            log.error("EsServiceImpl2.getCityList has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "查询城市列表接口", ""));
         }
         return new RestResult<>(RestEnum.FAILED, "获取城市列表失败");
@@ -477,7 +478,7 @@ public class EsServiceV2Impl {
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchIntegrityResp.builder().integrityList(integrityList).build());
         }catch (Exception e) {
-            log.error("EsServiceImpl2.getIntegrityList has error:{}",e.getMessage());
+            log.error("EsServiceImpl2.getIntegrityList has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "查询数据完整度列表接口", ""));
         }
         return new RestResult<>(RestEnum.FAILED, "获取完整度列表失败");
@@ -511,7 +512,7 @@ public class EsServiceV2Impl {
             if ("test".equals(env) || "pre".equals(env)) {
                 builder.from(0).size(10000);
             }else {
-                builder.from(0).size(900000000);
+                builder.from(0).size(10000);
             }
 
             //搜索
@@ -542,7 +543,7 @@ public class EsServiceV2Impl {
             }
             return new RestResult<>(RestEnum.SUCCESS, resultList.stream().distinct().collect(Collectors.toList()));
         }catch (Exception e) {
-            log.error("EsServiceImpl2.queryCountryOrCity has error:{}",e.getMessage());
+            log.error("EsServiceImpl2.queryCountryOrCity has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "搜索国家/城市接口", ImmutableMap.of("textValue",textValue,"fieldName",fieldName)));
         }
         return new RestResult<>(RestEnum.FAILED.getCode(), "搜索国家/城市失败");
@@ -579,7 +580,7 @@ public class EsServiceV2Impl {
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchBeforeNameResp.builder().beforeNameInfoList(resultList).build());
         }catch (Exception e) {
-            log.error("EsServiceImpl.searchBeforeNameInfo has error:{}",e.getMessage());
+            log.error("EsServiceImpl.searchBeforeNameInfo has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "搜索曾用名接口", ImmutableMap.of("userId",userId,"userName",userName)));
         }
         return new RestResult<>(RestEnum.FAILED);
@@ -669,7 +670,7 @@ public class EsServiceV2Impl {
                                     Comparator.comparing(BeforeNameInfo::getUuid))), ArrayList::new));
             return resultList;
         }catch (Exception e) {
-            log.error("EsServiceImpl2.searchBeforeNameInfoV2 has error:{}",e.getMessage());
+            log.error("EsServiceImpl2.searchBeforeNameInfoV2 has error,",e);
         }
         return new ArrayList<>();
     }
@@ -730,8 +731,8 @@ public class EsServiceV2Impl {
                 boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getNameUserdBefore()+"*").field("name_userd_before"));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-//                boolQueryBuilder.must(QueryBuilders.fuzzyQuery("mobile", "*"+searchReq.getPhoneNum()+"*").fuzziness(Fuzziness.AUTO));
                 boolQueryBuilder.must(QueryBuilders.wildcardQuery("mobile", "*"+searchReq.getPhoneNum()+"*"));
+                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getPhoneNum()+"*").field("mobile"));
             }
             if (StringUtils.isNotBlank(searchReq.getEmail())) {
                 if (searchReq.getEmail().contains(".")) {
@@ -868,7 +869,7 @@ public class EsServiceV2Impl {
      */
     private RequestOptions toBuilder() {
         RequestOptions.Builder builder = RequestOptions.DEFAULT.toBuilder();
-        builder.setHttpAsyncResponseConsumerFactory(new HttpAsyncResponseConsumerFactory.HeapBufferedResponseConsumerFactory(5000 * 1024 * 1024));
+        builder.setHttpAsyncResponseConsumerFactory(new HttpAsyncResponseConsumerFactory.HeapBufferedResponseConsumerFactory(1024 * 1024 * 1024));
         return builder.build();
     }
 
@@ -880,7 +881,7 @@ public class EsServiceV2Impl {
      * @return
      */
     private String assemblingStr(Exception e, String interFaceName, Object object) {
-        return "落河系统报错通知: 当前时间" + DateUtils.dateToStr(new Date()) + interFaceName + "报错,报错信息: " + e.getMessage() + ", 入参为: " + JacksonUtil.beanToStr(object);
+        return "落河系统报错通知: 当前时间" + DateUtils.dateToStr(new Date()) + interFaceName + "报错,报错信息: " + JacksonUtil.beanToStr(e) + ", 入参为: " + JacksonUtil.beanToStr(object);
     }
 
     /*************************************************************************/
@@ -921,7 +922,7 @@ public class EsServiceV2Impl {
             DingTalkUtil.sendDdMessage(mediaSourceEnum.getEs_index_v2() + "索引数据已经刷完,请查看！！！");
             return new RestResult<>(RestEnum.SUCCESS);
         }catch (Exception e) {
-            log.error("EsServiceImpl2.updateEsInfo has error:{}",e.getMessage());
+            log.error("EsServiceImpl2.updateEsInfo has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "刷" + mediaSourceEnum.getEs_index_v2() + "索引的脚本接口", ""));
         }
         return new RestResult<>(RestEnum.FAILED.getCode(), "刷脚本失败");
