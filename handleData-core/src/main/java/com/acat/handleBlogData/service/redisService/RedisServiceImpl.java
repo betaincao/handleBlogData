@@ -32,6 +32,15 @@ public class RedisServiceImpl {
     }
 
     /**
+     * 删除key
+     * @param key
+     * @return
+     */
+    public boolean deleteKey(String key) {
+        return redisTemplate.delete(key);
+    }
+
+    /**
      * set
      * @param key
      * @param value
@@ -139,6 +148,7 @@ public class RedisServiceImpl {
      * @return
      */
     public List range(String key, Long start, Long end) {
+        redisTemplate.expire(key, 1, TimeUnit.DAYS);
         return redisTemplate.opsForList().range(key, start, end);
     }
 

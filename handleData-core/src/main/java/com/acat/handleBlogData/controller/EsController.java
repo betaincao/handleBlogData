@@ -120,6 +120,11 @@ public class EsController {
                 return new RestResult<>(RestEnum.FEN_YE_ERROR);
             }
 
+//            MediaSourceEnum mediaSourceEnum = MediaSourceEnum.ALL;
+//            if (mediaCode != null && MediaSourceEnum.getMediaSourceEnum(mediaCode) != null) {
+//                mediaSourceEnum = MediaSourceEnum.getMediaSourceEnum(mediaCode);
+//            }
+
             String originalFilename = file.getOriginalFilename();
             String fileType = originalFilename.substring(originalFilename.lastIndexOf("."));
             if (!TXT_EXTENSION.equals(fileType)) {
