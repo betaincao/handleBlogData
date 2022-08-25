@@ -112,7 +112,7 @@ public class EsController {
                                              @RequestParam("file") MultipartFile file,
                                              @RequestParam("searchField") String searchField,
                                              @RequestParam("isParticiple") Integer isParticiple,
-                                             @RequestParam("mediaCode") Integer mediaCode,
+                                             @RequestParam(required = false, name = "mediaCode") Integer mediaCode,
                                              @RequestParam("pageNum") Integer pageNum,
                                              @RequestParam("pageSize") Integer pageSize
     ) {
@@ -122,8 +122,10 @@ public class EsController {
             }
 
             MediaSourceEnum mediaSourceEnum = MediaSourceEnum.ALL;
-            if (mediaCode != null && MediaSourceEnum.getMediaSourceEnum(mediaCode) != null) {
-                mediaSourceEnum = MediaSourceEnum.getMediaSourceEnum(mediaCode);
+            if (mediaCode != null) {
+                if (MediaSourceEnum.getMediaSourceEnum(mediaCode) != null) {
+                    mediaSourceEnum = MediaSourceEnum.getMediaSourceEnum(mediaCode);
+                }
             }
 
             String originalFilename = file.getOriginalFilename();
@@ -144,8 +146,19 @@ public class EsController {
             if (CollectionUtils.isEmpty(fieldList)) {
                 return new RestResult<>(RestEnum.BATCH_QUERY_FIELD_LIST_EMPTY);
             }
-            if (fieldList.size() > 1000) {
+            if (fieldList.size() > 500) {
                 return new RestResult<>(RestEnum.BATCH_QUERY_FIELD_SIZE_TOO_LARGE);
+            }
+
+            boolean flag = false;
+            for (String field : fieldList) {
+                if (field.contains("/")) {
+                    flag = true;
+                    break;
+                }
+            }
+            if (flag) {
+                return new RestResult<>(RestEnum.BATCH_QUERY_FIELD_HAS_SP_CHAR);
             }
             return esServiceV2.batchQuery(searchField, fieldList, isParticiple, mediaSourceEnum, pageNum, pageSize);
         }catch (Exception e) {

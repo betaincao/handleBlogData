@@ -4,6 +4,8 @@ import com.acat.handleBlogData.constants.RestResult;
 import com.acat.handleBlogData.controller.req.SearchDetailReq;
 import com.acat.handleBlogData.controller.req.SearchReq;
 import com.acat.handleBlogData.controller.resp.*;
+import com.acat.handleBlogData.dao.CountryDao;
+import com.acat.handleBlogData.domain.entity.BlogSystemCountryDataEntity;
 import com.acat.handleBlogData.enums.*;
 import com.acat.handleBlogData.service.redisService.RedisServiceImpl;
 import com.acat.handleBlogData.util.*;
@@ -44,6 +46,9 @@ public class EsServiceV2Impl {
     private RestHighLevelClient restHighLevelClient;
     @Resource
     private RedisServiceImpl redisService;
+    @Resource
+    private CountryDao countryDao;
+
     @Value("${spring.profiles.active}")
     private String env;
     @Value("${spring.max_result_window}")
@@ -53,8 +58,8 @@ public class EsServiceV2Impl {
     private static final String PROD_PIC_URL = "http://big-data-project-department.dc.gtcom.prod/big-data-project-department/fb/info/";
 
     //redis->key
-    public static final String COUNTRY_KEY = "country_v3";
-    public static final String CITY_KEY = "city_v3";
+    public static final String COUNTRY_KEY = "country_v4";
+    public static final String CITY_KEY = "city_v4";
     public static final String INTEGRITY_KEY = "integrity_v3";
 
     /**
@@ -73,7 +78,8 @@ public class EsServiceV2Impl {
     /**
      * 跑脚本list
      */
-    private static final List<String> fieldList = Lists.newArrayList("台湾", "香港", "澳门", "中国台湾", "中国香港", "中国澳门");
+    private static final List<String> fieldList_one = Lists.newArrayList("台湾","香港","澳门","中国台湾","中国香港","中国澳门");
+    private static final List<String> fieldList_taiwan = Lists.newArrayList("台湾");
 
 
     /**
@@ -94,13 +100,42 @@ public class EsServiceV2Impl {
                 searchReq.setIsParticiple(1);
             }
 
-            if (searchReq.getIsParticiple().equals(1) && StringUtils.isNotBlank(searchReq.getUserSummary().trim())) {
+            //youhua -> add
+            if (judgeParamIsEmpty(searchReq)) {
+                SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+                sourceBuilder.query(QueryBuilders.boolQuery());
+                sourceBuilder.from((pageNum > 0 ? (pageNum - 1) : 0) * pageSize).size(pageSize);
+                sourceBuilder.trackTotalHits(true);
+                sourceBuilder.sort("integrity", SortOrder.DESC);
+
+                SearchRequest searchRequest = new SearchRequest();
+                searchRequest.indices(MediaSourceEnum.LINKEDIN_SCHOOL.getEs_index_v2());
+                searchRequest.types("_doc");
+                searchRequest.source(sourceBuilder);
+                SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
+                if (response == null) {
+                    return new RestResult<>(RestEnum.PLEASE_TRY);
+                }
+
+                SearchHits searchHits = response.getHits();
+                if (searchHits == null || searchHits.getHits() == null) {
+                    return new RestResult<>(RestEnum.FIELD_NOT_SUPPORT_DIM_SEARCH,
+                            "您好,此搜索条件会存在超时风险,请更换搜索条件,系统正在持续优化中ing！！！");
+                }
+                return new RestResult<>(RestEnum.SUCCESS, assembleResult(response, true));
+            }
+
+            if (searchReq.getIsParticiple().equals(1)
+                    && StringUtils.isNotBlank(searchReq.getUserSummary())) {
                 return new RestResult<>(RestEnum.FIELD_NOT_SUPPORT_DIM_SEARCH,  "用户简介不支持精准查询,请改为模糊(分词)查询");
+            }
+            if (searchReq.getIsParticiple().equals(1)
+                    && StringUtils.isNotBlank(searchReq.getNameUserdBefore())) {
+                return new RestResult<>(RestEnum.FIELD_NOT_SUPPORT_DIM_SEARCH,  "曾用名不支持精准查询,请改为模糊(分词)查询");
             }
 
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
             assembleParam(searchReq, boolQueryBuilder);
-
             SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
             sourceBuilder.query(boolQueryBuilder);
             sourceBuilder.from((pageNum > 0 ? (pageNum - 1) : 0) * pageSize).size(pageSize);
@@ -125,7 +160,7 @@ public class EsServiceV2Impl {
                 return new RestResult<>(RestEnum.FIELD_NOT_SUPPORT_DIM_SEARCH,
                         "您好,此搜索条件会存在超时风险,请更换搜索条件,系统正在持续优化中ing！！！");
             }
-            return new RestResult<>(RestEnum.SUCCESS, assembleResult(response));
+            return new RestResult<>(RestEnum.SUCCESS, assembleResult(response, false));
         }catch (Exception e) {
             log.error("EsServiceV2Impl.searchData has error,",e);
             DingTalkUtil.sendDdMessage(assemblingStr(e, "搜索查询接口", searchReq));
@@ -187,7 +222,7 @@ public class EsServiceV2Impl {
             userDetailResp.setVerified(hit.getSourceAsMap().get("verified") == null ? "" : String.valueOf(hit.getSourceAsMap().get("verified")));
             userDetailResp.setNameUserdBefore(hit.getSourceAsMap().get("name_userd_before") == null ? "" : String.valueOf(hit.getSourceAsMap().get("name_userd_before")));
             userDetailResp.setMarriage(hit.getSourceAsMap().get("marriage") == null ? "" : String.valueOf(hit.getSourceAsMap().get("marriage")));
-            userDetailResp.setCountry(hit.getSourceAsMap().get("country") == null ? "" : handleCountry(String.valueOf(hit.getSourceAsMap().get("country"))));
+            userDetailResp.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
             userDetailResp.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
             userDetailResp.setUserReligion(hit.getSourceAsMap().get("user_religion") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_religion")));
             userDetailResp.setPhoneNum(hit.getSourceAsMap().get("mobile") == null ? "" : String.valueOf(hit.getSourceAsMap().get("mobile")));
@@ -269,10 +304,10 @@ public class EsServiceV2Impl {
             BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
             for(String fieldValue: fieldList){
                 if (isParticiple.equals(1)) {
-                    channelQueryBuilder.should(QueryBuilders.matchQuery(searchField + ".keyword", fieldValue.trim()));
+                    channelQueryBuilder.should(QueryBuilders.termQuery(searchField + ".keyword", fieldValue));
                 }else {
-                    channelQueryBuilder.should(QueryBuilders.wildcardQuery(searchField + ".keyword", "*"+fieldValue.trim()+"*"));
-                    channelQueryBuilder.should(QueryBuilders.queryStringQuery("*"+fieldValue.trim()+"*").field(searchField + ".keyword"));
+                    channelQueryBuilder.should(QueryBuilders.wildcardQuery(searchField + ".keyword", "*"+fieldValue+"*"));
+                    channelQueryBuilder.should(QueryBuilders.queryStringQuery("*"+fieldValue+"*").field(searchField + ".keyword"));
                 }
             }
             bigBuilder.must(channelQueryBuilder);
@@ -293,11 +328,19 @@ public class EsServiceV2Impl {
             if (response == null) {
                 return new RestResult<>(RestEnum.PLEASE_TRY);
             }
-            return new RestResult<>(RestEnum.SUCCESS, assembleResult(response));
+            return new RestResult<>(RestEnum.SUCCESS, assembleResult(response, false));
         }catch (Exception e) {
             log.error("EsServiceV2Impl.batchQuery has error,",e);
-            DingTalkUtil.sendDdMessage(assemblingStr(e, "批量查询接口", ImmutableMap.of("searchField",searchField,"fieldList",fieldList,"isParticiple",isParticiple,"pageNum",pageNum,"pageSize",pageSize)));
-            return new RestResult<>(RestEnum.FAILED);
+
+            Map<String, Object> batchMap = Maps.newHashMap();
+            batchMap.put("searchField", searchField);
+            batchMap.put("fieldList", fieldList);
+            batchMap.put("isParticiple", isParticiple);
+            batchMap.put("mediaSourceEnum", mediaSourceEnum);
+            batchMap.put("pageNum", pageNum);
+            batchMap.put("pageSize", pageSize);
+            DingTalkUtil.sendDdMessage(assemblingStr(e, "批量查询接口", batchMap));
+            return new RestResult<>(RestEnum.BATCH_QUERY_FIELD_HAS_SP_CHAR);
         }
     }
 
@@ -329,51 +372,58 @@ public class EsServiceV2Impl {
      */
     public RestResult<SearchCountryResp> getCountryList() {
         try {
-            List<String> countryListFromCache = redisService.range(COUNTRY_KEY, 0L, -1L);
+            List<String> countryListFromCache = redisService.rangeV2(COUNTRY_KEY, 0L, -1L);
             if (!CollectionUtils.isEmpty(countryListFromCache)) {
                 return new RestResult<>(RestEnum.SUCCESS,
                         SearchCountryResp.builder().countryList(countryListFromCache).build());
             }
 
-            SearchSourceBuilder builder = new SearchSourceBuilder()
-                    .query(QueryBuilders.matchAllQuery())
-                    .fetchSource(new String[]{"country"}, null)
-                    .collapse(new CollapseBuilder("country.keyword"))
-//                    .from(0).size(10000)
-                    .trackTotalHits(true);
-//            if ("test".equals(env) || "pre".equals(env)) {
-                builder.from(0).size(10000);
-//            }else {
-//                builder.from(0).size(10000);
+//            SearchSourceBuilder builder = new SearchSourceBuilder()
+//                    .query(QueryBuilders.matchAllQuery())
+//                    .fetchSource(new String[]{"country"}, null)
+//                    .collapse(new CollapseBuilder("country.keyword"))
+////                    .from(0).size(10000)
+//                    .trackTotalHits(true);
+////            if ("test".equals(env) || "pre".equals(env)) {
+//                builder.from(0).size(1000);
+////            }else {
+////                builder.from(0).size(10000);
+////            }
+//
+//            //搜索
+//            SearchRequest searchRequest = new SearchRequest();
+//            searchRequest.indices(indexArray_v2);
+//            searchRequest.types("_doc");
+//            searchRequest.source(builder);
+//            // 执行请求
+//            SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
+//            if (response == null) {
+//                return new RestResult<>(RestEnum.PLEASE_TRY);
+//            }
+//
+//            SearchHit[] searchHits = response.getHits().getHits();
+//            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
+//                return new RestResult<>(RestEnum.SUCCESS,
+//                        SearchCountryResp.builder().countryList(Lists.newArrayList()).build());
 //            }
 
-            //搜索
-            SearchRequest searchRequest = new SearchRequest();
-            searchRequest.indices(indexArray_v2);
-            searchRequest.types("_doc");
-            searchRequest.source(builder);
-            // 执行请求
-            SearchResponse response = restHighLevelClient.search(searchRequest, toBuilder());
-            if (response == null) {
-                return new RestResult<>(RestEnum.PLEASE_TRY);
-            }
-
-            SearchHit[] searchHits = response.getHits().getHits();
-            if (CollectionUtils.isEmpty(Arrays.asList(searchHits))) {
+            List<BlogSystemCountryDataEntity> blogSystemCountryDataList = countryDao.getAllCountryEntity();
+            if (CollectionUtils.isEmpty(blogSystemCountryDataList)) {
                 return new RestResult<>(RestEnum.SUCCESS,
                         SearchCountryResp.builder().countryList(Lists.newArrayList()).build());
             }
 
-            List<String> countryList = Arrays.stream(searchHits)
-                    .filter(e -> StringUtils.isNotBlank(String.valueOf(e.getSourceAsMap().get("country"))))
-                    .filter(e -> !fieldList.contains(String.valueOf(e.getSourceAsMap().get("country"))))
-                    .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
-                    .distinct()
-                    .collect(Collectors.toList());
+            List<String> countryList = blogSystemCountryDataList.stream().map(e -> e.getCountry()).distinct().collect(Collectors.toList());
+//            List<String> countryList = Arrays.stream(searchHits)
+//                    .filter(e -> StringUtils.isNotBlank(String.valueOf(e.getSourceAsMap().get("country"))))
+////                    .filter(e -> !fieldList_one.contains(String.valueOf(e.getSourceAsMap().get("country"))))
+//                    .map(e -> ReaderFileUtil.isChinese((String) e.getSourceAsMap().get("country")) ? (String) e.getSourceAsMap().get("country") : ((String) e.getSourceAsMap().get("country")).toUpperCase())
+//                    .distinct()
+//                    .collect(Collectors.toList());
 
             if(!CollectionUtils.isEmpty(countryList)) {
                 redisService.leftPushAll(COUNTRY_KEY, countryList);
-                DingTalkUtil.sendDdMessage("落河系统通知: redis-key:" + COUNTRY_KEY + "入redis缓存完毕！！！");
+//                DingTalkUtil.sendDdMessage("落河系统通知: redis-key:" + COUNTRY_KEY + "入redis缓存完毕！！！");
             }
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCountryResp.builder().countryList(countryList).build());
@@ -390,7 +440,7 @@ public class EsServiceV2Impl {
      */
     public RestResult<SearchCityResp> getCityList() {
         try {
-            List<String> cityListFromCache = redisService.range(CITY_KEY, 0L, -1L);
+            List<String> cityListFromCache = redisService.rangeV2(CITY_KEY, 0L, -1L);
             if (!CollectionUtils.isEmpty(cityListFromCache)) {
                 return new RestResult<>(RestEnum.SUCCESS,
                         SearchCityResp.builder().cityList(cityListFromCache).build());
@@ -404,7 +454,7 @@ public class EsServiceV2Impl {
 //                    .from(0).size(1000000)
                     .trackTotalHits(true);
 //            if ("test".equals(env) || "pre".equals(env)) {
-                builder.from(0).size(10000);
+                builder.from(0).size(5000);
 //            }else {
 //                builder.from(0).size(10000);
 //            }
@@ -433,7 +483,7 @@ public class EsServiceV2Impl {
                     .collect(Collectors.toList());
             if (!CollectionUtils.isEmpty(cityList)) {
                 redisService.leftPushAll(CITY_KEY, cityList);
-                DingTalkUtil.sendDdMessage("落河系统通知: redis-key:" + CITY_KEY + "入redis缓存完毕！！！");
+//                DingTalkUtil.sendDdMessage("落河系统通知: redis-key:" + CITY_KEY + "入redis缓存完毕！！！");
             }
             return new RestResult<>(RestEnum.SUCCESS,
                     SearchCityResp.builder().cityList(cityList).build());
@@ -525,7 +575,7 @@ public class EsServiceV2Impl {
 
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
             boolQueryBuilder.should(QueryBuilders.wildcardQuery(fieldName + ".keyword", "*" + textValue + "*"));
-            boolQueryBuilder.should(QueryBuilders.queryStringQuery("*" + textValue + "*").field(fieldName + ".keyword"));
+//            boolQueryBuilder.should(QueryBuilders.queryStringQuery("*" + textValue + "*").field(fieldName + ".keyword"));
 
             SearchSourceBuilder builder = new SearchSourceBuilder();
             builder.query(boolQueryBuilder);
@@ -710,85 +760,73 @@ public class EsServiceV2Impl {
         //精准查询
         if (searchReq.getIsParticiple().equals(1)) {
             if (StringUtils.isNotBlank(searchReq.getUserId())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("user_id.keyword", searchReq.getUserId().trim()));
+                boolQueryBuilder.must(QueryBuilders.termQuery("user_id.keyword", searchReq.getUserId()));
             }
             if (StringUtils.isNotBlank(searchReq.getUserName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("screen_name.keyword", searchReq.getUserName().trim()));
+                boolQueryBuilder.must(QueryBuilders.termQuery("screen_name.keyword", searchReq.getUserName()));
             }
             if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("use_name.keyword", searchReq.getUserQuanName().trim()));
+                boolQueryBuilder.must(QueryBuilders.termQuery("use_name.keyword", searchReq.getUserQuanName()));
             }
             if (StringUtils.isNotBlank(searchReq.getNameUserdBefore())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("name_userd_before.keyword", searchReq.getNameUserdBefore().trim()));
+                boolQueryBuilder.must(QueryBuilders.termQuery("name_userd_before.keyword", searchReq.getNameUserdBefore()));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("mobile.keyword", searchReq.getPhoneNum().trim()));
+                boolQueryBuilder.must(QueryBuilders.termQuery("mobile.keyword", searchReq.getPhoneNum()));
             }
             if (StringUtils.isNotBlank(searchReq.getEmail())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("email.keyword", searchReq.getEmail().trim()));
+                boolQueryBuilder.must(QueryBuilders.termQuery("email.keyword", searchReq.getEmail()));
             }
             if (StringUtils.isNotBlank(searchReq.getCountry())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("country.keyword", searchReq.getCountry().trim()));
+                boolQueryBuilder.must(QueryBuilders.termQuery("country.keyword", searchReq.getCountry()));
             }
             if (StringUtils.isNotBlank(searchReq.getCity())) {
-                boolQueryBuilder.must(QueryBuilders.matchQuery("city.keyword", searchReq.getCity().trim()));
+                boolQueryBuilder.must(QueryBuilders.termQuery("city.keyword", searchReq.getCity()));
             }
         }else {
             //分词查询
             if (StringUtils.isNotBlank(searchReq.getUserId())) {
-                boolQueryBuilder.should(QueryBuilders.wildcardQuery("user_id.keyword", "*"+searchReq.getUserId().trim()+"*"));
-                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserId().trim()+"*").field("user_id.keyword"));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("user_id.keyword", "*"+searchReq.getUserId()+"*"));
+//                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserId()+"*").field("user_id.keyword"));
             }
             if (StringUtils.isNotBlank(searchReq.getUserName())) {
-                boolQueryBuilder.should(QueryBuilders.wildcardQuery("screen_name.keyword", "*"+searchReq.getUserName().trim()+"*"));
-                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserName().trim()+"*").field("screen_name.keyword"));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("screen_name.keyword", "*"+searchReq.getUserName()+"*"));
+//                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserName()+"*").field("screen_name.keyword"));
             }
             if (StringUtils.isNotBlank(searchReq.getUserQuanName())) {
-                boolQueryBuilder.should(QueryBuilders.wildcardQuery("use_name.keyword", "*"+searchReq.getUserQuanName().trim()+"*"));
-                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserQuanName().trim()+"*").field("use_name.keyword"));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("use_name.keyword", "*"+searchReq.getUserQuanName()+"*"));
+//                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserQuanName()+"*").field("use_name.keyword"));
             }
             if (StringUtils.isNotBlank(searchReq.getNameUserdBefore())) {
-                boolQueryBuilder.should(QueryBuilders.wildcardQuery("name_userd_before.keyword", "*"+searchReq.getNameUserdBefore().trim()+"*"));
-                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getNameUserdBefore().trim()+"*").field("name_userd_before.keyword"));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("name_userd_before.keyword", "*"+searchReq.getNameUserdBefore()+"*"));
+//                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getNameUserdBefore()+"*").field("name_userd_before.keyword"));
             }
             if (StringUtils.isNotBlank(searchReq.getPhoneNum())) {
-                boolQueryBuilder.must(QueryBuilders.wildcardQuery("mobile.keyword", "*"+searchReq.getPhoneNum().trim()+"*"));
-                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getPhoneNum().trim()+"*").field("mobile.keyword"));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("mobile.keyword", "*"+searchReq.getPhoneNum()+"*"));
+//                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getPhoneNum()+"*").field("mobile.keyword"));
             }
             if (StringUtils.isNotBlank(searchReq.getEmail())) {
-                boolQueryBuilder.should(QueryBuilders.wildcardQuery("email.keyword", "*"+searchReq.getEmail().trim()+"*"));
-                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getEmail().trim()+"*").field("email.keyword"));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("email.keyword", "*"+searchReq.getEmail()+"*"));
+//                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getEmail()+"*").field("email.keyword"));
             }
             if (StringUtils.isNotBlank(searchReq.getCountry())) {
-                //均大写
-                if (ReaderFileUtil.isAcronym(searchReq.getCountry(), true)) {
-                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country.keyword", "*"+searchReq.getCountry().trim()+"*"));
-                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country.keyword", "*"+searchReq.getCountry().toLowerCase().trim()+"*"));
-                }
-                //均小写
-                else if (ReaderFileUtil.isAcronym(searchReq.getCountry(), false)) {
-                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country.keyword", "*"+searchReq.getCountry().trim()+"*"));
-                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country.keyword", "*"+searchReq.getCountry().toUpperCase().trim()+"*"));
-                }else {
-                    boolQueryBuilder.should(QueryBuilders.wildcardQuery("country.keyword", "*"+searchReq.getCountry().trim()+"*"));
-                    boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getCountry().trim()+"*").field("country.keyword"));
-                }
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("country.keyword", "*"+searchReq.getCountry()+"*"));
+//                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getCountry()+"*").field("country.keyword"));
             }
             if (StringUtils.isNotBlank(searchReq.getCity())) {
-                boolQueryBuilder.should(QueryBuilders.wildcardQuery("city.keyword", "*"+searchReq.getCity().trim()+"*"));
-                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getCity().trim()+"*").field("city.keyword"));
+                boolQueryBuilder.must(QueryBuilders.wildcardQuery("city.keyword", "*"+searchReq.getCity()+"*"));
+//                boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getCity()+"*").field("city.keyword"));
             }
         }
         if (StringUtils.isNotBlank(searchReq.getUserSummary())) {
-            boolQueryBuilder.should(QueryBuilders.wildcardQuery("user_summary.keyword", "*"+searchReq.getUserSummary().trim()+"*"));
-            boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserSummary().trim()+"*").field("user_summary.keyword"));
-//            boolQueryBuilder.should(QueryBuilders.fuzzyQuery("user_summary", "*"+searchReq.getUserSummary()+"*").fuzziness(Fuzziness.AUTO));
+            boolQueryBuilder.must(QueryBuilders.wildcardQuery("user_summary.keyword", "*"+searchReq.getUserSummary()+"*"));
+//            boolQueryBuilder.should(QueryBuilders.queryStringQuery("*"+searchReq.getUserSummary()+"*").field("user_summary.keyword"));
         }
-        if (searchReq.getIntegrity() != null) {
-            boolQueryBuilder.must(QueryBuilders.matchQuery("integrity", searchReq.getIntegrity()));
+        if (StringUtils.isNotBlank(searchReq.getIntegrity())) {
+            boolQueryBuilder.must(QueryBuilders.matchQuery("integrity", Integer.valueOf(searchReq.getIntegrity())));
         }
         if (StringUtils.isNotBlank(searchReq.getStartTime()) && StringUtils.isNotBlank(searchReq.getEndTime())) {
-            boolQueryBuilder.should(QueryBuilders.rangeQuery("source_create_time.keyword").gte(searchReq.getStartTime()).lte(searchReq.getEndTime()).format("yyyy-MM-dd HH:mm:ss"));
+            boolQueryBuilder.must(QueryBuilders.rangeQuery("source_create_time.keyword").gte(searchReq.getStartTime()).lte(searchReq.getEndTime()).format("yyyy-MM-dd HH:mm:ss"));
         }
     }
 
@@ -797,7 +835,7 @@ public class EsServiceV2Impl {
      * @param response
      * @return
      */
-    private SearchResp assembleResult(SearchResponse response) {
+    private SearchResp assembleResult(SearchResponse response, boolean flag) {
         List<SearchResp.UserData> userDataList = Lists.newArrayList();
         SearchHit[] searchHits = response.getHits().getHits();
         if (!CollectionUtils.isEmpty(Arrays.stream(searchHits).collect(Collectors.toList()))) {
@@ -813,7 +851,7 @@ public class EsServiceV2Impl {
                 userData.setUserQuanName(hit.getSourceAsMap().get("use_name") == null ? "" : String.valueOf(hit.getSourceAsMap().get("use_name")));
                 userData.setPhoneNum(hit.getSourceAsMap().get("mobile") == null ? "" : String.valueOf(hit.getSourceAsMap().get("mobile")));
                 userData.setEmail(hit.getSourceAsMap().get("email") == null ? "" : String.valueOf(hit.getSourceAsMap().get("email")));
-                userData.setCountry(hit.getSourceAsMap().get("country") == null ? "" : handleCountry(String.valueOf(hit.getSourceAsMap().get("country"))));
+                userData.setCountry(hit.getSourceAsMap().get("country") == null ? "" : String.valueOf(hit.getSourceAsMap().get("country")));
                 userData.setCity(hit.getSourceAsMap().get("city") == null ? "" : String.valueOf(hit.getSourceAsMap().get("city")));
                 userData.setUserHomePage(hit.getSourceAsMap().get("user_url") == null ? "" : String.valueOf(hit.getSourceAsMap().get("user_url")));
                 userData.setGender(hit.getSourceAsMap().get("gender") == null ? "" : String.valueOf(hit.getSourceAsMap().get("gender")));
@@ -833,11 +871,16 @@ public class EsServiceV2Impl {
         }
 
         TotalHits totalHits = response.getHits().getTotalHits();
-        return SearchResp
-                .builder()
-                .totalSize(totalHits.value)
-                .dataList(userDataList)
-                .build();
+
+        SearchResp searchResp = new SearchResp();
+        searchResp.setDataList(userDataList);
+        if (flag) {
+            Long size = getMediaIndexSize(MediaSourceEnum.ALL);
+            searchResp.setTotalSize(size);
+        }else {
+            searchResp.setTotalSize(totalHits.value);
+        }
+        return searchResp;
     }
 
     /**
@@ -899,7 +942,7 @@ public class EsServiceV2Impl {
         if (StringUtils.isBlank(country)) {
             return "";
         }
-        if (fieldList.contains(country)) {
+        if (fieldList_one.contains(country)) {
             return "中国";
         }
         return country;
@@ -910,7 +953,7 @@ public class EsServiceV2Impl {
         try {
             BoolQueryBuilder bigBuilder = QueryBuilders.boolQuery();
             BoolQueryBuilder channelQueryBuilder = new BoolQueryBuilder();
-            for(String fieldValue: fieldList){
+            for(String fieldValue: fieldList_taiwan){
                 channelQueryBuilder.should(QueryBuilders.matchQuery("country", fieldValue));
             }
             bigBuilder.must(channelQueryBuilder);
@@ -935,7 +978,7 @@ public class EsServiceV2Impl {
 
             for (SearchHit documentFields : Arrays.stream(searchHits).collect(Collectors.toList())) {
                 Map map = new HashMap();
-                map.put("country", "中国");
+                map.put("country", "中国台湾");
                 UpdateRequest updateRequest = new UpdateRequest(mediaSourceEnum.getEs_index_v2(), documentFields.getId()).doc(map);
                 restHighLevelClient.update(updateRequest, toBuilder());
             }
@@ -949,5 +992,23 @@ public class EsServiceV2Impl {
         return new RestResult<>(RestEnum.FAILED.getCode(), "刷脚本失败");
     }
 
-
+    public boolean judgeParamIsEmpty(SearchReq searchReq) {
+        boolean flag = false;
+        if (StringUtils.isBlank(searchReq.getUserId())
+            && StringUtils.isBlank(searchReq.getUserName())
+            && StringUtils.isBlank(searchReq.getUserQuanName())
+            && StringUtils.isBlank(searchReq.getNameUserdBefore())
+            && StringUtils.isBlank(searchReq.getPhoneNum())
+            && StringUtils.isBlank(searchReq.getEmail())
+            && StringUtils.isBlank(searchReq.getCountry())
+            && StringUtils.isBlank(searchReq.getCity())
+            && StringUtils.isBlank(searchReq.getUserSummary())
+            && StringUtils.isBlank(searchReq.getStartTime())
+            && StringUtils.isBlank(searchReq.getEndTime())
+            && StringUtils.isBlank(searchReq.getIntegrity())
+            && searchReq.getMediaType() == null) {
+            flag = true;
+        }
+        return flag;
+    }
 }
